@@ -1,0 +1,76 @@
+body{
+    background-color:rgb(99, 77, 197);
+    font-family:sans-serif;
+    color:white;
+  }
+  p,h1{
+    text-align:center;
+  }
+  label,input{
+    display:block;
+  }
+  div{
+    width:60%;
+    margin:0 auto;
+    padding:20px 20px;
+    background-color:rgb(16, 5, 63);
+  }
+  select{
+  margin-left:20px;
+  height:30px;
+  width:500px;
+  }
+  label{
+    margin:10px 20px;
+  }
+  
+  #name,#email,#number{
+    margin-top:10px;
+    height:30px;
+    width:500px;
+    display:block;
+  }
+  input{
+    display:inline-block;
+  }
+  
+  fieldset{
+    border-style:none;
+    margin:-10px 0;
+    display:block;
+  }
+  #chkbox{
+    margin-top:5px;
+  }
+  fieldset input{
+    margin:10px 0;
+     display: inline-block;
+      vertical-align: middle;
+      margin-right: 10px;
+      margin-left:10px;
+  }
+  textarea{
+    height:100px;
+     width:500px;
+     margin-left:20px;
+  }
+  button{
+    margin-top:20px;
+    margin-left:22px;
+    height:30px;
+    width:500px;
+    background-color:rgb(44, 146, 44);
+    border:none;
+    border-radius:5px;
+  }
+  fieldset input[type="checkbox"]{
+    transform:scale(1.5);
+    margin-top:5px;
+    border:none;
+  }
+  fieldset input[type="radio"]{
+    transform:scale(1.5);
+    margin-top:5px;
+    border:none;
+  }
+  

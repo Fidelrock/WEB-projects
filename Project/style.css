@@ -1,0 +1,150 @@
+/* Reset styles */
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+/* Global styles */
+body {
+	font-family: Arial, sans-serif;
+	color: #333;
+}
+
+header {
+	background-color: #fff;
+	box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+	padding: 20px;
+}
+
+nav ul {
+	list-style: none;
+	display: flex;
+	justify-content: space-between;
+}
+
+nav ul li a {
+	color: #333;
+	text-decoration: none;
+	padding: 10px 20px;
+	display: block;
+}
+
+nav ul li a:hover {
+	background-color: #eee;
+}
+
+.main {
+	max-width: 1200px;
+	margin: 0 auto;
+	padding: 40px;
+}
+
+.banner {
+	background-image: url('C:\Users\fidel\OneDrive\Desktop\Photos\banner4.jpg');
+	background-size: cover;
+	background-position: center;
+	height: 400px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	color: #fff;
+	text-align: center;
+}
+
+.banner h1 {
+	font-size: 48px;
+	margin-bottom: 20px;
+}
+
+.banner p {
+	font-size: 24px;
+}
+
+.categories {
+	display: flex;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	margin-top: 40px;
+}
+
+.category {
+	flex-basis: calc(33.33% - 20px);
+	margin-bottom: 20px;
+}
+
+.category a {
+	display: block;
+	text-align: center;
+}
+
+.category img {
+	max-width: 100%;
+	height: auto;
+	margin-bottom: 10px;
+}
+
+.sale {
+	margin-top: 40px;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+}
+
+.sale-item {
+	flex-basis: calc(33.33% - 20px);
+	margin-bottom: 20px;
+}
+
+.sale-item a {
+	display: block;
+	text-align: center;
+}
+
+.sale-item img {
+	max-width: 100%;
+	height: auto;
+	margin-bottom: 10px;
+}
+
+.sale-item h3 {
+	font-size: 24px;
+	margin-bottom: 10px;
+}
+
+.sale-item .price {
+	font-size: 20px;
+	font-weight: bold;
+	color: #c00;
+	margin-bottom: 10px;
+}
+
+.about {
+	margin-top: 40px;
+	text-align: center;
+}
+
+.about p {
+	margin-bottom: 20px;
+}
+
+.about .button {
+	display: inline-block;
+	padding: 10px 20px;
+	background-color: #c00;
+	color: #fff;
+	text-decoration: none;
+	border-radius: 5px;
+	transition: background-color 0.3s ease;
+}
+
+.about .button:hover {
+	background-color: #900;
+}
+
+footer {
+	background-color: #eee;
+	padding: 20px;
+	text-align: center;
+}

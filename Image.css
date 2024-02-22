@@ -1,0 +1,6 @@
+img{
+    width: 200;
+    height: 300;
+    border: double;
+    border-width: 2px;
+}

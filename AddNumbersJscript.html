@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Add numbers from the text fields</title>
+        <script type="text/JavaScript">
+            function Addnumbers(){
+                var num1 = document.getElementById("txtnum1").value;
+                var num2 = document.getElementById("txtnum2").value;
+                var sum = parseInt(num1)+parseInt(num2);
+                document.write(sum);
+            }
+        </script>
+    </head>
+    <body>
+        <form method="post" action="">
+            Enter first number:
+            <input type = "text"name="textnum1" id="txtnum1";/>
+            <br/>
+            Enter the second Number:
+            <input type="text"name="txtnum2" id="txtnum2"/>
+
+            <br/>
+            <input type="button" value="AddNumbers" onclick="Addnumbers()"/>
+        </form>
+    </body>
+</html>

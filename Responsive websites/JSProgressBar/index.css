@@ -1,0 +1,19 @@
+#Progress {
+    width: 100px;    
+    background-color: black;
+    margin: auto auto;
+    margin-top: 30%;
+  }
+  
+  #progressBar {
+    width: 1%;
+    height: 20px;
+    background-color: orange;
+    text-align: center;
+    line-height: 8px;
+    padding-top: 10px;
+    color: white;
+  }
+  button{
+    margin-left: 470px;
+  }

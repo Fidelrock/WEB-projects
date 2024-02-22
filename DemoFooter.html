@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <css
+            footer {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                grid-template-rows: auto;
+                grid-template-areas:
+                  "copyright copyright contact"
+                  "skills skills skills";
+                align-items: center;
+              }
+              
+              .copyright {
+                grid-area: copyright;
+                text-align: center;
+              }
+              
+              .skills {
+                grid-area: skills;
+                text-align: center;
+              }
+              
+              .contact {
+                grid-area: contact;
+                text-align: center;
+              }
+              
+              @media (max-width: 600px) {
+                footer {
+                  grid-template-columns: 1fr;
+                  grid-template-rows: auto;
+                  grid-template-areas:
+                    "copyright"
+                    "skills"
+                    "contact";
+                }
+              }
+        >
+       
+          
+    </body>
+</html>

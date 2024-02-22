@@ -1,0 +1,1950 @@
+/* Detect-zoom
+ * -----------
+ * Cross Browser Zoom and Pixel Ratio Detector
+ * Version 1.0.4 | Apr 1 2013
+ * dual-licensed under the WTFPL and MIT license
+ * Maintained by https://github/tombigel
+ * Original developer https://github.com/yonran
+ */
+
+//AMD and CommonJS initialization copied from https://github.com/zohararad/audio5js
+(function (root, ns, factory) {
+    "use strict";
+
+    if (typeof (module) !== 'undefined' && module.exports) { // CommonJS
+        module.exports = factory(ns, root);
+    } else if (typeof (define) === 'function' && define.amd) { // AMD
+        define("factory", function () {
+            return factory(ns, root);
+        });
+    } else {
+        root[ns] = factory(ns, root);
+    }
+
+}(window, 'detectZoom', function () {
+
+    /**
+     * Use devicePixelRatio if supported by the browser
+     * @return {Number}
+     * @private
+     */
+    var devicePixelRatio = function () {
+        return window.devicePixelRatio || 1;
+    };
+
+    /**
+     * Fallback function to set default values
+     * @return {Object}
+     * @private
+     */
+    var fallback = function () {
+        return {
+            zoom: 1,
+            devicePxPerCssPx: 1
+        };
+    };
+    /**
+     * IE 8 and 9: no trick needed!
+     * TODO: Test on IE10 and Windows 8 RT
+     * @return {Object}
+     * @private
+     **/
+    var ie8 = function () {
+        var zoom = Math.round((screen.deviceXDPI / screen.logicalXDPI) * 100) / 100;
+        return {
+            zoom: zoom,
+            devicePxPerCssPx: zoom * devicePixelRatio()
+        };
+    };
+
+    /**
+     * For IE10 we need to change our technique again...
+     * thanks https://github.com/stefanvanburen
+     * @return {Object}
+     * @private
+     */
+    var ie10 = function () {
+        var zoom = Math.round((document.documentElement.offsetHeight / window.innerHeight) * 100) / 100;
+        return {
+            zoom: zoom,
+            devicePxPerCssPx: zoom * devicePixelRatio()
+        };
+    };
+
+    /**
+     * Mobile WebKit
+     * the trick: window.innerWIdth is in CSS pixels, while
+     * screen.width and screen.height are in system pixels.
+     * And there are no scrollbars to mess up the measurement.
+     * @return {Object}
+     * @private
+     */
+    var webkitMobile = function () {
+        var deviceWidth = (Math.abs(window.orientation) == 90) ? screen.height : screen.width;
+        var zoom = deviceWidth / window.innerWidth;
+        return {
+            zoom: zoom,
+            devicePxPerCssPx: zoom * devicePixelRatio()
+        };
+    };
+
+    /**
+     * Desktop Webkit
+     * the trick: an element's clientHeight is in CSS pixels, while you can
+     * set its line-height in system pixels using font-size and
+     * -webkit-text-size-adjust:none.
+     * device-pixel-ratio: http://www.webkit.org/blog/55/high-dpi-web-sites/
+     *
+     * Previous trick (used before http://trac.webkit.org/changeset/100847):
+     * documentElement.scrollWidth is in CSS pixels, while
+     * document.width was in system pixels. Note that this is the
+     * layout width of the document, which is slightly different from viewport
+     * because document width does not include scrollbars and might be wider
+     * due to big elements.
+     * @return {Object}
+     * @private
+     */
+    var webkit = function () {
+        var important = function (str) {
+            return str.replace(/;/g, " !important;");
+        };
+
+        var div = document.createElement('div');
+        div.innerHTML = "1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>0";
+        div.setAttribute('style', important('font: 100px/1em sans-serif; -webkit-text-size-adjust: none; text-size-adjust: none; height: auto; width: 1em; padding: 0; overflow: visible;'));
+
+        // The container exists so that the div will be laid out in its own flow
+        // while not impacting the layout, viewport size, or display of the
+        // webpage as a whole.
+        // Add !important and relevant CSS rule resets
+        // so that other rules cannot affect the results.
+        var container = document.createElement('div');
+        container.setAttribute('style', important('width:0; height:0; overflow:hidden; visibility:hidden; position: absolute;'));
+        container.appendChild(div);
+
+        document.body.appendChild(container);
+        var zoom = 1000 / div.clientHeight;
+        zoom = Math.round(zoom * 100) / 100;
+        document.body.removeChild(container);
+
+        return{
+            zoom: zoom,
+            devicePxPerCssPx: zoom * devicePixelRatio()
+        };
+    };
+
+    /**
+     * no real trick; device-pixel-ratio is the ratio of device dpi / css dpi.
+     * (Note that this is a different interpretation than Webkit's device
+     * pixel ratio, which is the ratio device dpi / system dpi).
+     *
+     * Also, for Mozilla, there is no difference between the zoom factor and the device ratio.
+     *
+     * @return {Object}
+     * @private
+     */
+    var firefox4 = function () {
+        var zoom = mediaQueryBinarySearch('min--moz-device-pixel-ratio', '', 0, 10, 20, 0.0001);
+        zoom = Math.round(zoom * 100) / 100;
+        return {
+            zoom: zoom,
+            devicePxPerCssPx: zoom
+        };
+    };
+
+    /**
+     * Firefox 18.x
+     * Mozilla added support for devicePixelRatio to Firefox 18,
+     * but it is affected by the zoom level, so, like in older
+     * Firefox we can't tell if we are in zoom mode or in a device
+     * with a different pixel ratio
+     * @return {Object}
+     * @private
+     */
+    var firefox18 = function () {
+        return {
+            zoom: firefox4().zoom,
+            devicePxPerCssPx: devicePixelRatio()
+        };
+    };
+
+    /**
+     * works starting Opera 11.11
+     * the trick: outerWidth is the viewport width including scrollbars in
+     * system px, while innerWidth is the viewport width including scrollbars
+     * in CSS px
+     * @return {Object}
+     * @private
+     */
+    var opera11 = function () {
+        var zoom = window.top.outerWidth / window.top.innerWidth;
+        zoom = Math.round(zoom * 100) / 100;
+        return {
+            zoom: zoom,
+            devicePxPerCssPx: zoom * devicePixelRatio()
+        };
+    };
+
+    /**
+     * Use a binary search through media queries to find zoom level in Firefox
+     * @param property
+     * @param unit
+     * @param a
+     * @param b
+     * @param maxIter
+     * @param epsilon
+     * @return {Number}
+     */
+    var mediaQueryBinarySearch = function (property, unit, a, b, maxIter, epsilon) {
+        var matchMedia;
+        var head, style, div;
+        if (window.matchMedia) {
+            matchMedia = window.matchMedia;
+        } else {
+            head = document.getElementsByTagName('head')[0];
+            style = document.createElement('style');
+            head.appendChild(style);
+
+            div = document.createElement('div');
+            div.className = 'mediaQueryBinarySearch';
+            div.style.display = 'none';
+            document.body.appendChild(div);
+
+            matchMedia = function (query) {
+                style.sheet.insertRule('@media ' + query + '{.mediaQueryBinarySearch ' + '{text-decoration: underline} }', 0);
+                var matched = getComputedStyle(div, null).textDecoration == 'underline';
+                style.sheet.deleteRule(0);
+                return {matches: matched};
+            };
+        }
+        var ratio = binarySearch(a, b, maxIter);
+        if (div) {
+            head.removeChild(style);
+            document.body.removeChild(div);
+        }
+        return ratio;
+
+        function binarySearch(a, b, maxIter) {
+            var mid = (a + b) / 2;
+            if (maxIter <= 0 || b - a < epsilon) {
+                return mid;
+            }
+            var query = "(" + property + ":" + mid + unit + ")";
+            if (matchMedia(query).matches) {
+                return binarySearch(mid, b, maxIter - 1);
+            } else {
+                return binarySearch(a, mid, maxIter - 1);
+            }
+        }
+    };
+
+    /**
+     * Generate detection function
+     * @private
+     */
+    var detectFunction = (function () {
+        var func = fallback;
+        //IE8+
+        if (!isNaN(screen.logicalXDPI) && !isNaN(screen.systemXDPI)) {
+            func = ie8;
+        }
+        // IE10+ / Touch
+        else if (window.navigator.msMaxTouchPoints) {
+            func = ie10;
+        }
+        //Mobile Webkit
+        else if ('orientation' in window && typeof document.body.style.webkitMarquee === 'string') {
+            func = webkitMobile;
+        }
+        //WebKit
+        else if (typeof document.body.style.webkitMarquee === 'string') {
+            func = webkit;
+        }
+        //Opera
+        else if (navigator.userAgent.indexOf('Opera') >= 0) {
+            func = opera11;
+        }
+        //Last one is Firefox
+        //FF 18.x
+        else if (window.devicePixelRatio) {
+            func = firefox18;
+        }
+        //FF 4.0 - 17.x
+        else if (firefox4().zoom > 0.001) {
+            func = firefox4;
+        }
+
+        return func;
+    }());
+
+
+    return ({
+
+        /**
+         * Ratios.zoom shorthand
+         * @return {Number} Zoom level
+         */
+        zoom: function () {
+            return detectFunction().zoom;
+        },
+
+        /**
+         * Ratios.devicePxPerCssPx shorthand
+         * @return {Number} devicePxPerCssPx level
+         */
+        device: function () {
+            return detectFunction().devicePxPerCssPx;
+        }
+    });
+}));
+
+var wpcom_img_zoomer = {
+        clientHintSupport: {
+                gravatar: false,
+                files: false,
+                photon: false,
+                mshots: false,
+                staticAssets: false,
+                latex: false,
+                imgpress: false,
+        },
+	useHints: false,
+	zoomed: false,
+	timer: null,
+	interval: 1000, // zoom polling interval in millisecond
+
+	// Should we apply width/height attributes to control the image size?
+	imgNeedsSizeAtts: function( img ) {
+		// Do not overwrite existing width/height attributes.
+		if ( img.getAttribute('width') !== null || img.getAttribute('height') !== null )
+			return false;
+		// Do not apply the attributes if the image is already constrained by a parent element.
+		if ( img.width < img.naturalWidth || img.height < img.naturalHeight )
+			return false;
+		return true;
+	},
+
+        hintsFor: function( service ) {
+                if ( this.useHints === false ) {
+                        return false;
+                }
+                if ( this.hints() === false ) {
+                        return false;
+                }
+                if ( typeof this.clientHintSupport[service] === "undefined" ) {
+                        return false;
+                }
+                if ( this.clientHintSupport[service] === true ) {
+                        return true;
+                }
+                return false;
+        },
+
+	hints: function() {
+		try {
+			var chrome = window.navigator.userAgent.match(/\sChrome\/([0-9]+)\.[.0-9]+\s/)
+			if (chrome !== null) {
+				var version = parseInt(chrome[1], 10)
+				if (isNaN(version) === false && version >= 46) {
+					return true
+				}
+			}
+		} catch (e) {
+			return false
+		}
+		return false
+	},
+
+	init: function() {
+		var t = this;
+		try{
+			t.zoomImages();
+			t.timer = setInterval( function() { t.zoomImages(); }, t.interval );
+		}
+		catch(e){
+		}
+	},
+
+	stop: function() {
+		if ( this.timer )
+			clearInterval( this.timer );
+	},
+
+	getScale: function() {
+		var scale = detectZoom.device();
+		// Round up to 1.5 or the next integer below the cap.
+		if      ( scale <= 1.0 ) scale = 1.0;
+		else if ( scale <= 1.5 ) scale = 1.5;
+		else if ( scale <= 2.0 ) scale = 2.0;
+		else if ( scale <= 3.0 ) scale = 3.0;
+		else if ( scale <= 4.0 ) scale = 4.0;
+		else                     scale = 5.0;
+		return scale;
+	},
+
+	shouldZoom: function( scale ) {
+		var t = this;
+		// Do not operate on hidden frames.
+		if ( "innerWidth" in window && !window.innerWidth )
+			return false;
+		// Don't do anything until scale > 1
+		if ( scale == 1.0 && t.zoomed == false )
+			return false;
+		return true;
+	},
+
+	zoomImages: function() {
+		var t = this;
+		var scale = t.getScale();
+		if ( ! t.shouldZoom( scale ) ){
+			return;
+		}
+		t.zoomed = true;
+		// Loop through all the <img> elements on the page.
+		var imgs = document.getElementsByTagName("img");
+
+		for ( var i = 0; i < imgs.length; i++ ) {
+			// Wait for original images to load
+			if ( "complete" in imgs[i] && ! imgs[i].complete )
+				continue;
+
+			// Skip images that have srcset attributes.
+			if ( imgs[i].hasAttribute('srcset') ) {
+				continue;
+			}
+
+			// Skip images that don't need processing.
+			var imgScale = imgs[i].getAttribute("scale");
+			if ( imgScale == scale || imgScale == "0" )
+				continue;
+
+			// Skip images that have already failed at this scale
+			var scaleFail = imgs[i].getAttribute("scale-fail");
+			if ( scaleFail && scaleFail <= scale )
+				continue;
+
+			// Skip images that have no dimensions yet.
+			if ( ! ( imgs[i].width && imgs[i].height ) )
+				continue;
+
+			// Skip images from Lazy Load plugins
+			if ( ! imgScale && imgs[i].getAttribute("data-lazy-src") && (imgs[i].getAttribute("data-lazy-src") !== imgs[i].getAttribute("src")))
+				continue;
+
+			if ( t.scaleImage( imgs[i], scale ) ) {
+				// Mark the img as having been processed at this scale.
+				imgs[i].setAttribute("scale", scale);
+			}
+			else {
+				// Set the flag to skip this image.
+				imgs[i].setAttribute("scale", "0");
+			}
+		}
+	},
+
+	scaleImage: function( img, scale ) {
+		var t = this;
+		var newSrc = img.src;
+
+                var isFiles = false;
+                var isLatex = false;
+                var isPhoton = false;
+
+		// Skip slideshow images
+		if ( img.parentNode.className.match(/slideshow-slide/) )
+			return false;
+
+		// Skip CoBlocks Lightbox images
+		if ( img.parentNode.className.match(/coblocks-lightbox__image/) )
+			return false;
+
+		// Scale gravatars that have ?s= or ?size=
+		if ( img.src.match( /^https?:\/\/([^\/]*\.)?gravatar\.com\/.+[?&](s|size)=/ ) ) {
+                        if ( this.hintsFor( "gravatar" ) === true ) {
+                                return false;
+                        }
+			newSrc = img.src.replace( /([?&](s|size)=)(\d+)/, function( $0, $1, $2, $3 ) {
+				// Stash the original size
+				var originalAtt = "originals",
+				originalSize = img.getAttribute(originalAtt);
+				if ( originalSize === null ) {
+					originalSize = $3;
+					img.setAttribute(originalAtt, originalSize);
+					if ( t.imgNeedsSizeAtts( img ) ) {
+						// Fix width and height attributes to rendered dimensions.
+						img.width = img.width;
+						img.height = img.height;
+					}
+				}
+				// Get the width/height of the image in CSS pixels
+				var size = img.clientWidth;
+				// Convert CSS pixels to device pixels
+				var targetSize = Math.ceil(img.clientWidth * scale);
+				// Don't go smaller than the original size
+				targetSize = Math.max( targetSize, originalSize );
+				// Don't go larger than the service supports
+				targetSize = Math.min( targetSize, 512 );
+				return $1 + targetSize;
+			});
+		}
+
+		// Scale mshots that have width
+		else if ( img.src.match(/^https?:\/\/([^\/]+\.)*(wordpress|wp)\.com\/mshots\/.+[?&]w=\d+/) ) {
+                        if ( this.hintsFor( "mshots" ) === true ) {
+                                return false;
+                        }
+			newSrc = img.src.replace( /([?&]w=)(\d+)/, function($0, $1, $2) {
+				// Stash the original size
+				var originalAtt = 'originalw', originalSize = img.getAttribute(originalAtt);
+				if ( originalSize === null ) {
+					originalSize = $2;
+					img.setAttribute(originalAtt, originalSize);
+					if ( t.imgNeedsSizeAtts( img ) ) {
+						// Fix width and height attributes to rendered dimensions.
+						img.width = img.width;
+						img.height = img.height;
+					}
+				}
+				// Get the width of the image in CSS pixels
+				var size = img.clientWidth;
+				// Convert CSS pixels to device pixels
+				var targetSize = Math.ceil(size * scale);
+				// Don't go smaller than the original size
+				targetSize = Math.max( targetSize, originalSize );
+				// Don't go bigger unless the current one is actually lacking
+				if ( scale > img.getAttribute("scale") && targetSize <= img.naturalWidth )
+					targetSize = $2;
+				if ( $2 != targetSize )
+					return $1 + targetSize;
+				return $0;
+			});
+
+			// Update height attribute to match width
+			newSrc = newSrc.replace( /([?&]h=)(\d+)/, function($0, $1, $2) {
+				if ( newSrc == img.src ) {
+					return $0;
+				}
+				// Stash the original size
+				var originalAtt = 'originalh', originalSize = img.getAttribute(originalAtt);
+				if ( originalSize === null ) {
+					originalSize = $2;
+					img.setAttribute(originalAtt, originalSize);
+				}
+				// Get the height of the image in CSS pixels
+				var size = img.clientHeight;
+				// Convert CSS pixels to device pixels
+				var targetSize = Math.ceil(size * scale);
+				// Don't go smaller than the original size
+				targetSize = Math.max( targetSize, originalSize );
+				// Don't go bigger unless the current one is actually lacking
+				if ( scale > img.getAttribute("scale") && targetSize <= img.naturalHeight )
+					targetSize = $2;
+				if ( $2 != targetSize )
+					return $1 + targetSize;
+				return $0;
+			});
+		}
+
+		// Scale simple imgpress queries (s0.wp.com) that only specify w/h/fit
+		else if ( img.src.match(/^https?:\/\/([^\/.]+\.)*(wp|wordpress)\.com\/imgpress\?(.+)/) ) {
+                        if ( this.hintsFor( "imgpress" ) === true ) {
+                                return false; 
+                        }
+			var imgpressSafeFunctions = ["zoom", "url", "h", "w", "fit", "filter", "brightness", "contrast", "colorize", "smooth", "unsharpmask"];
+			// Search the query string for unsupported functions.
+			var qs = RegExp.$3.split('&');
+			for ( var q in qs ) {
+				q = qs[q].split('=')[0];
+				if ( imgpressSafeFunctions.indexOf(q) == -1 ) {
+					return false;
+				}
+			}
+			// Fix width and height attributes to rendered dimensions.
+			img.width = img.width;
+			img.height = img.height;
+			// Compute new src
+			if ( scale == 1 )
+				newSrc = img.src.replace(/\?(zoom=[^&]+&)?/, '?');
+			else
+				newSrc = img.src.replace(/\?(zoom=[^&]+&)?/, '?zoom=' + scale + '&');
+		}
+
+		// Scale files.wordpress.com, LaTeX, or Photon images (i#.wp.com)
+		else if (
+			( isFiles = img.src.match(/^https?:\/\/([^\/]+)\.files\.wordpress\.com\/.+[?&][wh]=/) ) ||
+			( isLatex = img.src.match(/^https?:\/\/([^\/.]+\.)*(wp|wordpress)\.com\/latex\.php\?(latex|zoom)=(.+)/) ) ||
+			( isPhoton = img.src.match(/^https?:\/\/i[\d]{1}\.wp\.com\/(.+)/) )
+		) {
+                        if ( false !== isFiles && this.hintsFor( "files" ) === true ) {
+                                return false
+                        }
+                        if ( false !== isLatex && this.hintsFor( "latex" ) === true ) {
+                                return false
+                        }
+                        if ( false !== isPhoton && this.hintsFor( "photon" ) === true ) {
+                                return false
+                        }
+			// Fix width and height attributes to rendered dimensions.
+			img.width = img.width;
+			img.height = img.height;
+			// Compute new src
+			if ( scale == 1 ) {
+				newSrc = img.src.replace(/\?(zoom=[^&]+&)?/, '?');
+			} else {
+				newSrc = img.src;
+
+				var url_var = newSrc.match( /([?&]w=)(\d+)/ );
+				if ( url_var !== null && url_var[2] ) {
+					newSrc = newSrc.replace( url_var[0], url_var[1] + img.width );
+				}
+
+				url_var = newSrc.match( /([?&]h=)(\d+)/ );
+				if ( url_var !== null && url_var[2] ) {
+					newSrc = newSrc.replace( url_var[0], url_var[1] + img.height );
+				}
+
+				var zoom_arg = '&zoom=2';
+				if ( !newSrc.match( /\?/ ) ) {
+					zoom_arg = '?zoom=2';
+				}
+				img.setAttribute( 'srcset', newSrc + zoom_arg + ' ' + scale + 'x' );
+			}
+		}
+
+		// Scale static assets that have a name matching *-1x.png or *@1x.png
+		else if ( img.src.match(/^https?:\/\/[^\/]+\/.*[-@]([12])x\.(gif|jpeg|jpg|png)(\?|$)/) ) {
+                        if ( this.hintsFor( "staticAssets" ) === true ) {
+                                return false; 
+                        }
+			// Fix width and height attributes to rendered dimensions.
+			img.width = img.width;
+			img.height = img.height;
+			var currentSize = RegExp.$1, newSize = currentSize;
+			if ( scale <= 1 )
+				newSize = 1;
+			else
+				newSize = 2;
+			if ( currentSize != newSize )
+				newSrc = img.src.replace(/([-@])[12]x\.(gif|jpeg|jpg|png)(\?|$)/, '$1'+newSize+'x.$2$3');
+		}
+
+		else {
+			return false;
+		}
+
+		// Don't set img.src unless it has changed. This avoids unnecessary reloads.
+		if ( newSrc != img.src ) {
+			// Store the original img.src
+			var prevSrc, origSrc = img.getAttribute("src-orig");
+			if ( !origSrc ) {
+				origSrc = img.src;
+				img.setAttribute("src-orig", origSrc);
+			}
+			// In case of error, revert img.src
+			prevSrc = img.src;
+			img.onerror = function(){
+				img.src = prevSrc;
+				if ( img.getAttribute("scale-fail") < scale )
+					img.setAttribute("scale-fail", scale);
+				img.onerror = null;
+			};
+			// Finally load the new image
+			img.src = newSrc;
+		}
+
+		return true;
+	}
+};
+
+wpcom_img_zoomer.init();
+;
+/* global wpcom_reblog */
+
+var jetpackLikesWidgetBatch = [];
+var jetpackLikesMasterReady = false;
+
+// Due to performance problems on pages with a large number of widget iframes that need to be loaded,
+// we are limiting the processing at any instant to unloaded widgets that are currently in viewport,
+// plus this constant that will allow processing of widgets above and bellow the current fold.
+// This aim of it is to improve the UX and hide the transition from unloaded to loaded state from users.
+var jetpackLikesLookAhead = 2000; // pixels
+
+// Keeps track of loaded comment likes widget so we can unload them when they are scrolled out of view.
+var jetpackCommentLikesLoadedWidgets = [];
+
+var jetpackLikesDocReadyPromise = new Promise( resolve => {
+	if ( document.readyState !== 'loading' ) {
+		resolve();
+	} else {
+		window.addEventListener( 'DOMContentLoaded', () => resolve() );
+	}
+} );
+
+function JetpackLikesPostMessage( message, target ) {
+	if ( typeof message === 'string' ) {
+		try {
+			message = JSON.parse( message );
+		} catch ( e ) {
+			return;
+		}
+	}
+
+	if ( target && typeof target.postMessage === 'function' ) {
+		try {
+			target.postMessage(
+				JSON.stringify( {
+					type: 'likesMessage',
+					data: message,
+				} ),
+				'*'
+			);
+		} catch ( e ) {
+			return;
+		}
+	}
+}
+
+function JetpackLikesBatchHandler() {
+	const requests = [];
+	document.querySelectorAll( 'div.jetpack-likes-widget-unloaded' ).forEach( widget => {
+		if ( jetpackLikesWidgetBatch.indexOf( widget.id ) > -1 ) {
+			return;
+		}
+
+		if ( ! jetpackIsScrolledIntoView( widget ) ) {
+			return;
+		}
+
+		jetpackLikesWidgetBatch.push( widget.id );
+
+		var regex = /like-(post|comment)-wrapper-(\d+)-(\d+)-(\w+)/,
+			match = regex.exec( widget.id ),
+			info;
+
+		if ( ! match || match.length !== 5 ) {
+			return;
+		}
+
+		info = {
+			blog_id: match[ 2 ],
+			width: widget.width,
+		};
+
+		if ( 'post' === match[ 1 ] ) {
+			info.post_id = match[ 3 ];
+		} else if ( 'comment' === match[ 1 ] ) {
+			info.comment_id = match[ 3 ];
+		}
+
+		info.obj_id = match[ 4 ];
+
+		requests.push( info );
+	} );
+
+	if ( requests.length > 0 ) {
+		JetpackLikesPostMessage(
+			{ event: 'initialBatch', requests: requests },
+			window.frames[ 'likes-master' ]
+		);
+	}
+}
+
+function JetpackLikesMessageListener( event ) {
+	let message = event && event.data;
+	if ( typeof message === 'string' ) {
+		try {
+			message = JSON.parse( message );
+		} catch ( err ) {
+			return;
+		}
+	}
+
+	const type = message && message.type;
+	const data = message && message.data;
+
+	if ( type !== 'likesMessage' || typeof data.event === 'undefined' ) {
+		return;
+	}
+
+	// We only allow messages from one origin
+	const allowedOrigin = 'https://widgets.wp.com';
+	if ( allowedOrigin !== event.origin ) {
+		return;
+	}
+
+	switch ( data.event ) {
+		case 'masterReady':
+			jetpackLikesDocReadyPromise.then( () => {
+				jetpackLikesMasterReady = true;
+
+				const stylesData = {
+					event: 'injectStyles',
+				};
+				const sdTextColor = document.querySelector( '.sd-text-color' );
+				const sdLinkColor = document.querySelector( '.sd-link-color' );
+				const sdTextColorStyles = ( sdTextColor && getComputedStyle( sdTextColor ) ) || {};
+				const sdLinkColorStyles = ( sdLinkColor && getComputedStyle( sdLinkColor ) ) || {};
+
+				if ( document.querySelectorAll( 'iframe.admin-bar-likes-widget' ).length > 0 ) {
+					JetpackLikesPostMessage( { event: 'adminBarEnabled' }, window.frames[ 'likes-master' ] );
+
+					const bgSource = document.querySelector(
+						'#wpadminbar .quicklinks li#wp-admin-bar-wpl-like > a'
+					);
+
+					const wpAdminBar = document.querySelector( '#wpadminbar' );
+
+					stylesData.adminBarStyles = {
+						background: bgSource && getComputedStyle( bgSource ).background,
+						isRtl: wpAdminBar && getComputedStyle( wpAdminBar ).direction === 'rtl',
+					};
+				}
+
+				// enable reblogs if they are enabled for the page
+				if ( document.body.classList.contains( 'jetpack-reblog-enabled' ) ) {
+					JetpackLikesPostMessage( { event: 'reblogsEnabled' }, window.frames[ 'likes-master' ] );
+				}
+
+				stylesData.textStyles = {
+					color: sdTextColorStyles[ 'color' ],
+					fontFamily: sdTextColorStyles[ 'font-family' ],
+					fontSize: sdTextColorStyles[ 'font-size' ],
+					direction: sdTextColorStyles[ 'direction' ],
+					fontWeight: sdTextColorStyles[ 'font-weight' ],
+					fontStyle: sdTextColorStyles[ 'font-style' ],
+					textDecoration: sdTextColorStyles[ 'text-decoration' ],
+				};
+
+				stylesData.linkStyles = {
+					color: sdLinkColorStyles[ 'color' ],
+					fontFamily: sdLinkColorStyles[ 'font-family' ],
+					fontSize: sdLinkColorStyles[ 'font-size' ],
+					textDecoration: sdLinkColorStyles[ 'text-decoration' ],
+					fontWeight: sdLinkColorStyles[ 'font-weight' ],
+					fontStyle: sdLinkColorStyles[ 'font-style' ],
+				};
+
+				JetpackLikesPostMessage( stylesData, window.frames[ 'likes-master' ] );
+
+				JetpackLikesBatchHandler();
+			} );
+
+			break;
+
+		case 'showLikeWidget': {
+			const placeholder = document.querySelector( `#${ data.id } .likes-widget-placeholder` );
+			if ( placeholder ) {
+				placeholder.style.display = 'none';
+			}
+			break;
+		}
+
+		case 'showCommentLikeWidget': {
+			const placeholder = document.querySelector( `#${ data.id } .likes-widget-placeholder` );
+			if ( placeholder ) {
+				placeholder.style.display = 'none';
+			}
+			break;
+		}
+
+		case 'killCommentLikes':
+			// If kill switch for comment likes is enabled remove all widgets wrappers and `Loading...` placeholders.
+			document
+				.querySelectorAll( '.jetpack-comment-likes-widget-wrapper' )
+				.forEach( wrapper => wrapper.remove() );
+			break;
+
+		case 'clickReblogFlair':
+			if ( wpcom_reblog && typeof wpcom_reblog.toggle_reblog_box_flair === 'function' ) {
+				wpcom_reblog.toggle_reblog_box_flair( data.obj_id, data.post_id );
+			}
+			break;
+
+		case 'showOtherGravatars': {
+			const container = document.querySelector( '#likes-other-gravatars' );
+			if ( ! container ) {
+				break;
+			}
+
+			const list = container.querySelector( 'ul' );
+
+			container.style.display = 'none';
+			list.innerHTML = '';
+
+			container
+				.querySelectorAll( '.likes-text span' )
+				.forEach( item => ( item.textContent = data.total ) );
+
+			( data.likers || [] ).forEach( liker => {
+				if ( liker.profile_URL.substr( 0, 4 ) !== 'http' ) {
+					// We only display gravatars with http or https schema
+					return;
+				}
+
+				const element = document.createElement( 'li' );
+				element.innerHTML = `
+					<a href="${ encodeURI( liker.profile_URL ) }" rel="nofollow" target="_parent" class="wpl-liker">
+						<img src="${ encodeURI( liker.avatar_URL ) }"
+							alt=""
+							style="width: 30px; height: 30px; padding-right: 3px;" />
+					</a>
+				`;
+
+				list.append( element );
+
+				// Add some extra attributes through native methods, to ensure strings are sanitized.
+				element.classList.add( liker.css_class );
+				element.querySelector( 'img' ).alt = liker.name;
+			} );
+
+			const el = document.querySelector( `*[name='${ data.parent }']` );
+			const rect = el.getBoundingClientRect();
+			const win = el.ownerDocument.defaultView;
+			const offset = {
+				top: rect.top + win.pageYOffset,
+				left: rect.left + win.pageXOffset,
+			};
+
+			container.style.left = offset.left + data.position.left - 10 + 'px';
+			container.style.top = offset.top + data.position.top - 33 + 'px';
+
+			const rowLength = Math.floor( data.width / 37 );
+			let height = Math.ceil( data.likers.length / rowLength ) * 37 + 13;
+			if ( height > 204 ) {
+				height = 204;
+			}
+
+			const containerWidth = rowLength * 37 - 7;
+			container.style.height = height + 'px';
+			container.style.width = containerWidth + 'px';
+
+			const listWidth = rowLength * 37;
+			list.style.width = listWidth + 'px';
+
+			container.style.display = 'block';
+
+			const scrollbarWidth = list.offsetWidth - list.clientWidth;
+			if ( scrollbarWidth > 0 ) {
+				container.style.width = containerWidth + scrollbarWidth + 'px';
+				list.style.width = listWidth + scrollbarWidth + 'px';
+			}
+		}
+	}
+}
+
+window.addEventListener( 'message', JetpackLikesMessageListener );
+
+document.addEventListener( 'click', e => {
+	const container = document.querySelector( '#likes-other-gravatars' );
+
+	if ( container && ! container.contains( e.target ) ) {
+		container.style.display = 'none';
+	}
+} );
+
+function JetpackLikesWidgetQueueHandler() {
+	var wrapperID;
+
+	if ( ! jetpackLikesMasterReady ) {
+		setTimeout( JetpackLikesWidgetQueueHandler, 500 );
+		return;
+	}
+
+	// Restore widgets to initial unloaded state when they are scrolled out of view.
+	jetpackUnloadScrolledOutWidgets();
+
+	var unloadedWidgetsInView = jetpackGetUnloadedWidgetsInView();
+
+	if ( unloadedWidgetsInView.length > 0 ) {
+		// Grab any unloaded widgets for a batch request
+		JetpackLikesBatchHandler();
+	}
+
+	for ( var i = 0, length = unloadedWidgetsInView.length; i <= length - 1; i++ ) {
+		wrapperID = unloadedWidgetsInView[ i ].id;
+
+		if ( ! wrapperID ) {
+			continue;
+		}
+
+		jetpackLoadLikeWidgetIframe( wrapperID );
+	}
+}
+
+function jetpackLoadLikeWidgetIframe( wrapperID ) {
+	if ( typeof wrapperID === 'undefined' ) {
+		return;
+	}
+
+	const wrapper = document.querySelector( '#' + wrapperID );
+	wrapper.querySelectorAll( 'iframe' ).forEach( iFrame => iFrame.remove() );
+
+	const placeholder = wrapper.querySelector( '.likes-widget-placeholder' );
+
+	// Post like iframe
+	if ( placeholder && placeholder.classList.contains( 'post-likes-widget-placeholder' ) ) {
+		const postLikesFrame = document.createElement( 'iframe' );
+
+		postLikesFrame.classList.add( 'post-likes-widget', 'jetpack-likes-widget' );
+		postLikesFrame.name = wrapper.dataset.name;
+		postLikesFrame.src = wrapper.dataset.src;
+		postLikesFrame.height = '55px';
+		postLikesFrame.width = '100%';
+		postLikesFrame.frameBorder = '0';
+		postLikesFrame.scrolling = 'no';
+		postLikesFrame.title = wrapper.dataset.title;
+
+		placeholder.after( postLikesFrame );
+	}
+
+	// Comment like iframe
+	if ( placeholder.classList.contains( 'comment-likes-widget-placeholder' ) ) {
+		const commentLikesFrame = document.createElement( 'iframe' );
+
+		commentLikesFrame.class = 'comment-likes-widget-frame jetpack-likes-widget-frame';
+		commentLikesFrame.name = wrapper.dataset.name;
+		commentLikesFrame.src = wrapper.dataset.src;
+		commentLikesFrame.height = '18px';
+		commentLikesFrame.width = '100%';
+		commentLikesFrame.frameBorder = '0';
+		commentLikesFrame.scrolling = 'no';
+
+		wrapper.querySelector( '.comment-like-feedback' ).after( commentLikesFrame );
+
+		jetpackCommentLikesLoadedWidgets.push( commentLikesFrame );
+	}
+
+	wrapper.classList.remove( 'jetpack-likes-widget-unloaded' );
+	wrapper.classList.add( 'jetpack-likes-widget-loading' );
+
+	wrapper.querySelector( 'iframe' ).addEventListener( 'load', e => {
+		JetpackLikesPostMessage(
+			{ event: 'loadLikeWidget', name: e.target.name, width: e.target.width },
+			window.frames[ 'likes-master' ]
+		);
+
+		wrapper.classList.remove( 'jetpack-likes-widget-loading' );
+		wrapper.classList.add( 'jetpack-likes-widget-loaded' );
+	} );
+}
+
+function jetpackGetUnloadedWidgetsInView() {
+	const unloadedWidgets = document.querySelectorAll( 'div.jetpack-likes-widget-unloaded' );
+
+	return [ ...unloadedWidgets ].filter( item => jetpackIsScrolledIntoView( item ) );
+}
+
+function jetpackIsScrolledIntoView( element ) {
+	const top = element.getBoundingClientRect().top;
+	const bottom = element.getBoundingClientRect().bottom;
+
+	// Allow some slack above and bellow the fold with jetpackLikesLookAhead,
+	// with the aim of hiding the transition from unloaded to loaded widget from users.
+	return top + jetpackLikesLookAhead >= 0 && bottom <= window.innerHeight + jetpackLikesLookAhead;
+}
+
+function jetpackUnloadScrolledOutWidgets() {
+	for ( let i = jetpackCommentLikesLoadedWidgets.length - 1; i >= 0; i-- ) {
+		const currentWidgetIframe = jetpackCommentLikesLoadedWidgets[ i ];
+
+		if ( ! jetpackIsScrolledIntoView( currentWidgetIframe ) ) {
+			const widgetWrapper =
+				currentWidgetIframe &&
+				currentWidgetIframe.parentElement &&
+				currentWidgetIframe.parentElement.parentElement;
+
+			// Restore parent class to 'unloaded' so this widget can be picked up by queue manager again if needed.
+			widgetWrapper.classList.remove( 'jetpack-likes-widget-loaded' );
+			widgetWrapper.classList.remove( 'jetpack-likes-widget-loading' );
+			widgetWrapper.classList.add( 'jetpack-likes-widget-unloaded' );
+
+			// Bring back the loading placeholder into view.
+			widgetWrapper
+				.querySelectorAll( '.comment-likes-widget-placeholder' )
+				.forEach( item => ( item.style.display = 'block' ) );
+
+			// Remove it from the list of loaded widgets.
+			jetpackCommentLikesLoadedWidgets.splice( i, 1 );
+
+			// Remove comment like widget iFrame.
+			currentWidgetIframe.remove();
+		}
+	}
+}
+
+var jetpackWidgetsDelayedExec = function ( after, fn ) {
+	var timer;
+	return function () {
+		clearTimeout( timer );
+		timer = setTimeout( fn, after );
+	};
+};
+
+var jetpackOnScrollStopped = jetpackWidgetsDelayedExec( 250, JetpackLikesWidgetQueueHandler );
+
+// Load initial batch of widgets, prior to any scrolling events.
+JetpackLikesWidgetQueueHandler();
+
+// Add event listener to execute queue handler after scroll.
+window.addEventListener( 'scroll', jetpackOnScrollStopped, true );
+;
+/*! This file is auto-generated */
+!function(e,t){if("function"==typeof define&&define.amd)define("hoverintent",["module"],t);else if("undefined"!=typeof exports)t(module);else{var n={exports:{}};t(n),e.hoverintent=n.exports}}(this,function(e){"use strict";var t=Object.assign||function(e){for(var t=1;t<arguments.length;t++){var n=arguments[t];for(var o in n)Object.prototype.hasOwnProperty.call(n,o)&&(e[o]=n[o])}return e};e.exports=function(e,n,o){function i(e,t){return y&&(y=clearTimeout(y)),b=0,p?void 0:o.call(e,t)}function r(e){m=e.clientX,d=e.clientY}function u(e,t){if(y&&(y=clearTimeout(y)),Math.abs(h-m)+Math.abs(E-d)<x.sensitivity)return b=1,p?void 0:n.call(e,t);h=m,E=d,y=setTimeout(function(){u(e,t)},x.interval)}function s(t){return L=!0,y&&(y=clearTimeout(y)),e.removeEventListener("mousemove",r,!1),1!==b&&(h=t.clientX,E=t.clientY,e.addEventListener("mousemove",r,!1),y=setTimeout(function(){u(e,t)},x.interval)),this}function c(t){return L=!1,y&&(y=clearTimeout(y)),e.removeEventListener("mousemove",r,!1),1===b&&(y=setTimeout(function(){i(e,t)},x.timeout)),this}function v(t){L||(p=!0,n.call(e,t))}function a(t){!L&&p&&(p=!1,o.call(e,t))}function f(){e.addEventListener("focus",v,!1),e.addEventListener("blur",a,!1)}function l(){e.removeEventListener("focus",v,!1),e.removeEventListener("blur",a,!1)}var m,d,h,E,L=!1,p=!1,T={},b=0,y=0,x={sensitivity:7,interval:100,timeout:0,handleFocus:!1};return T.options=function(e){var n=e.handleFocus!==x.handleFocus;return x=t({},x,e),n&&(x.handleFocus?f():l()),T},T.remove=function(){e&&(e.removeEventListener("mouseover",s,!1),e.removeEventListener("mouseout",c,!1),l())},e&&(e.addEventListener("mouseover",s,!1),e.addEventListener("mouseout",c,!1)),T}});
+;
+/*! This file is auto-generated */
+!function(l,u,d){function m(e){27===e.which&&(e=w(e.target,".menupop"))&&(e.querySelector(".menupop > .ab-item").focus(),y(e,"hover"))}function f(e){var t;13!==e.which||w(e.target,".ab-sub-wrapper")||(t=w(e.target,".menupop"))&&(e.preventDefault(),(o(t,"hover")?y:b)(t,"hover"))}function p(e){var t;13===e.which&&(t=e.target.getAttribute("href"),-1<d.userAgent.toLowerCase().indexOf("applewebkit"))&&t&&"#"===t.charAt(0)&&setTimeout(function(){var e=l.getElementById(t.replace("#",""));e&&(e.setAttribute("tabIndex","0"),e.focus())},100)}function h(e,t){!w(t.target,".ab-sub-wrapper")&&(t.preventDefault(),t=w(t.target,".menupop"))&&(o(t,"hover")?y:(E(e),b))(t,"hover")}function v(e){var t,n=e.target.parentNode;if(t=n?n.querySelector(".shortlink-input"):t)return e.preventDefault&&e.preventDefault(),e.returnValue=!1,b(n,"selected"),t.focus(),t.select(),!(t.onblur=function(){y(n,"selected")})}function g(){if("sessionStorage"in u)try{for(var e in sessionStorage)-1<e.indexOf("wp-autosave-")&&sessionStorage.removeItem(e)}catch(e){}}function o(e,t){return e&&(e.classList&&e.classList.contains?e.classList.contains(t):e.className&&-1<e.className.split(" ").indexOf(t))}function b(e,t){e&&(e.classList&&e.classList.add?e.classList.add(t):o(e,t)||(e.className&&(e.className+=" "),e.className+=t))}function y(e,t){var n,r;if(e&&o(e,t))if(e.classList&&e.classList.remove)e.classList.remove(t);else{for(n=" "+t+" ",r=" "+e.className+" ";-1<r.indexOf(n);)r=r.replace(n,"");e.className=r.replace(/^[\s]+|[\s]+$/g,"")}}function E(e){if(e&&e.length)for(var t=0;t<e.length;t++)y(e[t],"hover")}function L(e){if(!e.target||"wpadminbar"===e.target.id||"wp-admin-bar-top-secondary"===e.target.id)try{u.scrollTo({top:-32,left:0,behavior:"smooth"})}catch(e){u.scrollTo(0,-32)}}function w(e,t){for(u.Element.prototype.matches||(u.Element.prototype.matches=u.Element.prototype.matchesSelector||u.Element.prototype.mozMatchesSelector||u.Element.prototype.msMatchesSelector||u.Element.prototype.oMatchesSelector||u.Element.prototype.webkitMatchesSelector||function(e){for(var t=(this.document||this.ownerDocument).querySelectorAll(e),n=t.length;0<=--n&&t.item(n)!==this;);return-1<n});e&&e!==l;e=e.parentNode)if(e.matches(t))return e;return null}l.addEventListener("DOMContentLoaded",function(){var n,e,t,r,o,a,s,i,c=l.getElementById("wpadminbar");if(c&&"querySelectorAll"in c){n=c.querySelectorAll("li.menupop"),e=c.querySelectorAll(".ab-item"),t=l.getElementById("wp-admin-bar-logout"),r=l.getElementById("adminbarsearch"),o=l.getElementById("wp-admin-bar-get-shortlink"),a=c.querySelector(".screen-reader-shortcut"),s=/Mobile\/.+Safari/.test(d.userAgent)?"touchstart":"click",y(c,"nojs"),"ontouchstart"in u&&(l.body.addEventListener(s,function(e){w(e.target,"li.menupop")||E(n)}),c.addEventListener("touchstart",function e(){for(var t=0;t<n.length;t++)n[t].addEventListener("click",h.bind(null,n));c.removeEventListener("touchstart",e)})),c.addEventListener("click",L);for(i=0;i<n.length;i++)u.hoverintent(n[i],b.bind(null,n[i],"hover"),y.bind(null,n[i],"hover")).options({timeout:180}),n[i].addEventListener("keydown",f);for(i=0;i<e.length;i++)e[i].addEventListener("keydown",m);r&&((s=l.getElementById("adminbar-search")).addEventListener("focus",function(){b(r,"adminbar-focused")}),s.addEventListener("blur",function(){y(r,"adminbar-focused")})),a&&a.addEventListener("keydown",p),o&&o.addEventListener("click",v),u.location.hash&&u.scrollBy(0,-32),t&&t.addEventListener("click",g)}})}(document,window,navigator);;
+/*! This file is auto-generated */
+window.addComment=function(v){var I,C,h,E=v.document,b={commentReplyClass:"comment-reply-link",commentReplyTitleId:"reply-title",cancelReplyId:"cancel-comment-reply-link",commentFormId:"commentform",temporaryFormId:"wp-temp-form-div",parentIdFieldId:"comment_parent",postIdFieldId:"comment_post_ID"},e=v.MutationObserver||v.WebKitMutationObserver||v.MozMutationObserver,r="querySelector"in E&&"addEventListener"in v,n=!!E.documentElement.dataset;function t(){d(),e&&new e(o).observe(E.body,{childList:!0,subtree:!0})}function d(e){if(r&&(I=g(b.cancelReplyId),C=g(b.commentFormId),I)){I.addEventListener("touchstart",l),I.addEventListener("click",l);function t(e){if((e.metaKey||e.ctrlKey)&&13===e.keyCode)return C.removeEventListener("keydown",t),e.preventDefault(),C.submit.click(),!1}C&&C.addEventListener("keydown",t);for(var n,d=function(e){var t=b.commentReplyClass;e&&e.childNodes||(e=E);e=E.getElementsByClassName?e.getElementsByClassName(t):e.querySelectorAll("."+t);return e}(e),o=0,i=d.length;o<i;o++)(n=d[o]).addEventListener("touchstart",a),n.addEventListener("click",a)}}function l(e){var t,n,d=g(b.temporaryFormId);d&&h&&(g(b.parentIdFieldId).value="0",t=d.textContent,d.parentNode.replaceChild(h,d),this.style.display="none",n=(d=(d=g(b.commentReplyTitleId))&&d.firstChild)&&d.nextSibling,d&&d.nodeType===Node.TEXT_NODE&&t&&(n&&"A"===n.nodeName&&n.id!==b.cancelReplyId&&(n.style.display=""),d.textContent=t),e.preventDefault())}function a(e){var t=g(b.commentReplyTitleId),t=t&&t.firstChild.textContent,n=this,d=m(n,"belowelement"),o=m(n,"commentid"),i=m(n,"respondelement"),r=m(n,"postid"),n=m(n,"replyto")||t;d&&o&&i&&r&&!1===v.addComment.moveForm(d,o,i,r,n)&&e.preventDefault()}function o(e){for(var t=e.length;t--;)if(e[t].addedNodes.length)return void d()}function m(e,t){return n?e.dataset[t]:e.getAttribute("data-"+t)}function g(e){return E.getElementById(e)}return r&&"loading"!==E.readyState?t():r&&v.addEventListener("DOMContentLoaded",t,!1),{init:d,moveForm:function(e,t,n,d,o){var i,r,l,a,m,c,s,e=g(e),n=(h=g(n),g(b.parentIdFieldId)),y=g(b.postIdFieldId),p=g(b.commentReplyTitleId),u=(p=p&&p.firstChild)&&p.nextSibling;if(e&&h&&n){void 0===o&&(o=p&&p.textContent),a=h,m=b.temporaryFormId,c=g(m),s=(s=g(b.commentReplyTitleId))?s.firstChild.textContent:"",c||((c=E.createElement("div")).id=m,c.style.display="none",c.textContent=s,a.parentNode.insertBefore(c,a)),d&&y&&(y.value=d),n.value=t,I.style.display="",e.parentNode.insertBefore(h,e.nextSibling),p&&p.nodeType===Node.TEXT_NODE&&(u&&"A"===u.nodeName&&u.id!==b.cancelReplyId&&(u.style.display="none"),p.textContent=o),I.onclick=function(){return!1};try{for(var f=0;f<C.elements.length;f++)if(i=C.elements[f],r=!1,"getComputedStyle"in v?l=v.getComputedStyle(i):E.documentElement.currentStyle&&(l=i.currentStyle),(i.offsetWidth<=0&&i.offsetHeight<=0||"hidden"===l.visibility)&&(r=!0),"hidden"!==i.type&&!i.disabled&&!r){i.focus();break}}catch(e){}return!1}}}}(window);;
+// Make the list of internal blogs in adminbar scrollable
+
+jQuery( document ).ready( function( $ ) {
+	// Handle the tap on menus on mobile, override the core js.
+	$(document.body).off( '.wp-mobile-hover' );
+	$('#wpadminbar').off('touchstart');
+
+	setTimeout( function() {
+		$('li.menupop').on( 'touchstart', function(e) {
+			var $target = $(e.target).closest( 'li' );
+
+			if ( $target.hasClass( 'menupop' ) && $target.attr( 'id' ) != 'wp-admin-bar-switch-site' ) {
+				e.preventDefault();
+
+				$('li.menupop').not($(this)).removeClass( 'hover' );
+				$(this).toggleClass( 'hover' );
+			}
+		});
+	}, 10 );
+
+	// Handle sub menu list of sites scrolling (pre-calypso toolbar view)
+	var ul = $('#wpadminbar #wp-admin-bar-my-sites'),
+		li = ul.find('> li').not('.adminbar-handle'),
+		size = Math.floor( ( $(window).height() - 100 ) / 30 ), // approx, based on current styling
+		topHandle, bottomHandle, interval, speed = 100;
+
+	if ( ! ul.length || li.length < size + 1 || ul.find('li:first').hasClass('.adminbar-handle') )
+		return;
+
+	function move( direction ) {
+		var hide, show, next,
+			visible = li.filter(':visible'),
+			first = visible.first(),
+			last = visible.last();
+
+		if ( 'up' == direction ) {
+			show = last.next().not('.adminbar-handle');
+			hide = first;
+
+			if ( topHandle.hasClass('scrollend') ) {
+				topHandle.removeClass('scrollend');
+			}
+
+			if ( show.next().hasClass('adminbar-handle') ) {
+				bottomHandle.addClass('scrollend');
+			}
+
+			if ( ! show.length ) {
+				window.clearInterval( interval );
+				return;
+			}
+		} else if ( 'down' == direction ) {
+			show = first.prev().not('.adminbar-handle');
+			hide = last;
+
+			if ( bottomHandle.hasClass('scrollend') ) {
+				bottomHandle.removeClass('scrollend');
+			}
+
+			if ( show.prev().hasClass('adminbar-handle') ) {
+				topHandle.addClass('scrollend');
+			}
+
+			if ( ! show.length ) {
+				window.clearInterval( interval );
+				return;
+			}
+		} else {
+			return;
+		}
+
+		if ( hide.length && show.length ) {
+			// Maybe add some sliding animation?
+			hide.hide()
+			show.show()
+		}
+	}
+
+	// hide the extra items
+	li.slice(size).hide();
+
+	topHandle = $('<li class="adminbar-handle">');
+	bottomHandle = topHandle.clone().addClass('handle-bottom');
+	ul.prepend( topHandle.addClass('handle-top scrollend') ).append( bottomHandle );
+
+	topHandle.on( 'mouseenter', function() {
+		interval = window.setInterval( function() { move('down'); }, speed );
+	}).on( 'click', function() {
+		 move('down');
+	});
+
+	bottomHandle.on( 'mouseenter', function() {
+		interval = window.setInterval( function() { move('up'); }, speed );
+	}).on( 'click', function() {
+		 move('up');
+	});
+
+	topHandle.add( bottomHandle ).on( 'mouseleave click', function() {
+		 window.clearInterval( interval );
+	});
+});
+;
+!function(){var t={4793:function(t){var n={"À":"A","Á":"A","Â":"A","Ã":"A","Ä":"A","Å":"A","Ấ":"A","Ắ":"A","Ẳ":"A","Ẵ":"A","Ặ":"A","Æ":"AE","Ầ":"A","Ằ":"A","Ȃ":"A","Ç":"C","Ḉ":"C","È":"E","É":"E","Ê":"E","Ë":"E","Ế":"E","Ḗ":"E","Ề":"E","Ḕ":"E","Ḝ":"E","Ȇ":"E","Ì":"I","Í":"I","Î":"I","Ï":"I","Ḯ":"I","Ȋ":"I","Ð":"D","Ñ":"N","Ò":"O","Ó":"O","Ô":"O","Õ":"O","Ö":"O","Ø":"O","Ố":"O","Ṍ":"O","Ṓ":"O","Ȏ":"O","Ù":"U","Ú":"U","Û":"U","Ü":"U","Ý":"Y","à":"a","á":"a","â":"a","ã":"a","ä":"a","å":"a","ấ":"a","ắ":"a","ẳ":"a","ẵ":"a","ặ":"a","æ":"ae","ầ":"a","ằ":"a","ȃ":"a","ç":"c","ḉ":"c","è":"e","é":"e","ê":"e","ë":"e","ế":"e","ḗ":"e","ề":"e","ḕ":"e","ḝ":"e","ȇ":"e","ì":"i","í":"i","î":"i","ï":"i","ḯ":"i","ȋ":"i","ð":"d","ñ":"n","ò":"o","ó":"o","ô":"o","õ":"o","ö":"o","ø":"o","ố":"o","ṍ":"o","ṓ":"o","ȏ":"o","ù":"u","ú":"u","û":"u","ü":"u","ý":"y","ÿ":"y","Ā":"A","ā":"a","Ă":"A","ă":"a","Ą":"A","ą":"a","Ć":"C","ć":"c","Ĉ":"C","ĉ":"c","Ċ":"C","ċ":"c","Č":"C","č":"c","C̆":"C","c̆":"c","Ď":"D","ď":"d","Đ":"D","đ":"d","Ē":"E","ē":"e","Ĕ":"E","ĕ":"e","Ė":"E","ė":"e","Ę":"E","ę":"e","Ě":"E","ě":"e","Ĝ":"G","Ǵ":"G","ĝ":"g","ǵ":"g","Ğ":"G","ğ":"g","Ġ":"G","ġ":"g","Ģ":"G","ģ":"g","Ĥ":"H","ĥ":"h","Ħ":"H","ħ":"h","Ḫ":"H","ḫ":"h","Ĩ":"I","ĩ":"i","Ī":"I","ī":"i","Ĭ":"I","ĭ":"i","Į":"I","į":"i","İ":"I","ı":"i","Ĳ":"IJ","ĳ":"ij","Ĵ":"J","ĵ":"j","Ķ":"K","ķ":"k","Ḱ":"K","ḱ":"k","K̆":"K","k̆":"k","Ĺ":"L","ĺ":"l","Ļ":"L","ļ":"l","Ľ":"L","ľ":"l","Ŀ":"L","ŀ":"l","Ł":"l","ł":"l","Ḿ":"M","ḿ":"m","M̆":"M","m̆":"m","Ń":"N","ń":"n","Ņ":"N","ņ":"n","Ň":"N","ň":"n","ŉ":"n","N̆":"N","n̆":"n","Ō":"O","ō":"o","Ŏ":"O","ŏ":"o","Ő":"O","ő":"o","Œ":"OE","œ":"oe","P̆":"P","p̆":"p","Ŕ":"R","ŕ":"r","Ŗ":"R","ŗ":"r","Ř":"R","ř":"r","R̆":"R","r̆":"r","Ȓ":"R","ȓ":"r","Ś":"S","ś":"s","Ŝ":"S","ŝ":"s","Ş":"S","Ș":"S","ș":"s","ş":"s","Š":"S","š":"s","Ţ":"T","ţ":"t","ț":"t","Ț":"T","Ť":"T","ť":"t","Ŧ":"T","ŧ":"t","T̆":"T","t̆":"t","Ũ":"U","ũ":"u","Ū":"U","ū":"u","Ŭ":"U","ŭ":"u","Ů":"U","ů":"u","Ű":"U","ű":"u","Ų":"U","ų":"u","Ȗ":"U","ȗ":"u","V̆":"V","v̆":"v","Ŵ":"W","ŵ":"w","Ẃ":"W","ẃ":"w","X̆":"X","x̆":"x","Ŷ":"Y","ŷ":"y","Ÿ":"Y","Y̆":"Y","y̆":"y","Ź":"Z","ź":"z","Ż":"Z","ż":"z","Ž":"Z","ž":"z","ſ":"s","ƒ":"f","Ơ":"O","ơ":"o","Ư":"U","ư":"u","Ǎ":"A","ǎ":"a","Ǐ":"I","ǐ":"i","Ǒ":"O","ǒ":"o","Ǔ":"U","ǔ":"u","Ǖ":"U","ǖ":"u","Ǘ":"U","ǘ":"u","Ǚ":"U","ǚ":"u","Ǜ":"U","ǜ":"u","Ứ":"U","ứ":"u","Ṹ":"U","ṹ":"u","Ǻ":"A","ǻ":"a","Ǽ":"AE","ǽ":"ae","Ǿ":"O","ǿ":"o","Þ":"TH","þ":"th","Ṕ":"P","ṕ":"p","Ṥ":"S","ṥ":"s","X́":"X","x́":"x","Ѓ":"Г","ѓ":"г","Ќ":"К","ќ":"к","A̋":"A","a̋":"a","E̋":"E","e̋":"e","I̋":"I","i̋":"i","Ǹ":"N","ǹ":"n","Ồ":"O","ồ":"o","Ṑ":"O","ṑ":"o","Ừ":"U","ừ":"u","Ẁ":"W","ẁ":"w","Ỳ":"Y","ỳ":"y","Ȁ":"A","ȁ":"a","Ȅ":"E","ȅ":"e","Ȉ":"I","ȉ":"i","Ȍ":"O","ȍ":"o","Ȑ":"R","ȑ":"r","Ȕ":"U","ȕ":"u","B̌":"B","b̌":"b","Č̣":"C","č̣":"c","Ê̌":"E","ê̌":"e","F̌":"F","f̌":"f","Ǧ":"G","ǧ":"g","Ȟ":"H","ȟ":"h","J̌":"J","ǰ":"j","Ǩ":"K","ǩ":"k","M̌":"M","m̌":"m","P̌":"P","p̌":"p","Q̌":"Q","q̌":"q","Ř̩":"R","ř̩":"r","Ṧ":"S","ṧ":"s","V̌":"V","v̌":"v","W̌":"W","w̌":"w","X̌":"X","x̌":"x","Y̌":"Y","y̌":"y","A̧":"A","a̧":"a","B̧":"B","b̧":"b","Ḑ":"D","ḑ":"d","Ȩ":"E","ȩ":"e","Ɛ̧":"E","ɛ̧":"e","Ḩ":"H","ḩ":"h","I̧":"I","i̧":"i","Ɨ̧":"I","ɨ̧":"i","M̧":"M","m̧":"m","O̧":"O","o̧":"o","Q̧":"Q","q̧":"q","U̧":"U","u̧":"u","X̧":"X","x̧":"x","Z̧":"Z","z̧":"z"},e=Object.keys(n).join("|"),r=new RegExp(e,"g"),o=new RegExp(e,""),u=function(t){return t.replace(r,(function(t){return n[t]}))};t.exports=u,t.exports.has=function(t){return!!t.match(o)},t.exports.remove=u}},n={};function e(r){var o=n[r];if(void 0!==o)return o.exports;var u=n[r]={exports:{}};return t[r](u,u.exports,e),u.exports}e.n=function(t){var n=t&&t.__esModule?function(){return t.default}:function(){return t};return e.d(n,{a:n}),n},e.d=function(t,n){for(var r in n)e.o(n,r)&&!e.o(t,r)&&Object.defineProperty(t,r,{enumerable:!0,get:n[r]})},e.o=function(t,n){return Object.prototype.hasOwnProperty.call(t,n)},e.r=function(t){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(t,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(t,"__esModule",{value:!0})};var r={};!function(){"use strict";function t(t){try{return new URL(t),!0}catch{return!1}}e.r(r),e.d(r,{addQueryArgs:function(){return O},buildQueryString:function(){return p},cleanForSlug:function(){return j},filterURLForDisplay:function(){return w},getAuthority:function(){return c},getFilename:function(){return C},getFragment:function(){return h},getPath:function(){return a},getPathAndQueryString:function(){return d},getProtocol:function(){return u},getQueryArg:function(){return U},getQueryArgs:function(){return A},getQueryString:function(){return l},hasQueryArg:function(){return E},isEmail:function(){return o},isURL:function(){return t},isValidAuthority:function(){return s},isValidFragment:function(){return y},isValidPath:function(){return f},isValidProtocol:function(){return i},isValidQueryString:function(){return g},normalizePath:function(){return P},prependHTTP:function(){return b},prependHTTPS:function(){return Q},removeQueryArgs:function(){return I},safeDecodeURI:function(){return v},safeDecodeURIComponent:function(){return m}});const n=/^(mailto:)?[a-z0-9._%+-]+@[a-z0-9][a-z0-9.-]*\.[a-z]{2,63}$/i;function o(t){return n.test(t)}function u(t){const n=/^([^\s:]+:)/.exec(t);if(n)return n[1]}function i(t){return!!t&&/^[a-z\-.\+]+[0-9]*:$/i.test(t)}function c(t){const n=/^[^\/\s:]+:(?:\/\/)?\/?([^\/\s#?]+)[\/#?]{0,1}\S*$/.exec(t);if(n)return n[1]}function s(t){return!!t&&/^[^\s#?]+$/.test(t)}function a(t){const n=/^[^\/\s:]+:(?:\/\/)?[^\/\s#?]+[\/]([^\s#?]+)[#?]{0,1}\S*$/.exec(t);if(n)return n[1]}function f(t){return!!t&&/^[^\s#?]+$/.test(t)}function l(t){let n;try{n=new URL(t,"http://example.com").search.substring(1)}catch(t){}if(n)return n}function p(t){let n="";const e=Object.entries(t);let r;for(;r=e.shift();){let[t,o]=r;if(Array.isArray(o)||o&&o.constructor===Object){const n=Object.entries(o).reverse();for(const[r,o]of n)e.unshift([`${t}[${r}]`,o])}else void 0!==o&&(null===o&&(o=""),n+="&"+[t,o].map(encodeURIComponent).join("="))}return n.substr(1)}function g(t){return!!t&&/^[^\s#?\/]+$/.test(t)}function d(t){const n=a(t),e=l(t);let r="/";return n&&(r+=n),e&&(r+=`?${e}`),r}function h(t){const n=/^\S+?(#[^\s\?]*)/.exec(t);if(n)return n[1]}function y(t){return!!t&&/^#[^\s#?\/]*$/.test(t)}function m(t){try{return decodeURIComponent(t)}catch(n){return t}}function A(t){return(l(t)||"").replace(/\+/g,"%20").split("&").reduce(((t,n)=>{const[e,r=""]=n.split("=").filter(Boolean).map(m);return e&&function(t,n,e){const r=n.length,o=r-1;for(let u=0;u<r;u++){let r=n[u];!r&&Array.isArray(t)&&(r=t.length.toString()),r=["__proto__","constructor","prototype"].includes(r)?r.toUpperCase():r;const i=!isNaN(Number(n[u+1]));t[r]=u===o?e:t[r]||(i?[]:{}),Array.isArray(t[r])&&!i&&(t[r]={...t[r]}),t=t[r]}}(t,e.replace(/\]/g,"").split("["),r),t}),Object.create(null))}function O(){let t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:"",n=arguments.length>1?arguments[1]:void 0;if(!n||!Object.keys(n).length)return t;let e=t;const r=t.indexOf("?");return-1!==r&&(n=Object.assign(A(t),n),e=e.substr(0,r)),e+"?"+p(n)}function U(t,n){return A(t)[n]}function E(t,n){return void 0!==U(t,n)}function I(t){const n=t.indexOf("?");if(-1===n)return t;const e=A(t),r=t.substr(0,n);for(var o=arguments.length,u=new Array(o>1?o-1:0),i=1;i<o;i++)u[i-1]=arguments[i];u.forEach((t=>delete e[t]));const c=p(e);return c?r+"?"+c:r}const x=/^(?:[a-z]+:|#|\?|\.|\/)/i;function b(t){return t?(t=t.trim(),x.test(t)||o(t)?t:"http://"+t):t}function v(t){try{return decodeURI(t)}catch(n){return t}}function w(t){let n=arguments.length>1&&void 0!==arguments[1]?arguments[1]:null,e=t.replace(/^(?:https?:)\/\/(?:www\.)?/,"");e.match(/^[^\/]+\/$/)&&(e=e.replace("/",""));const r=/([\w|:])*\.(?:jpg|jpeg|gif|png|svg)/;if(!n||e.length<=n||!e.match(r))return e;e=e.split("?")[0];const o=e.split("/"),u=o[o.length-1];if(u.length<=n)return"…"+e.slice(-n);const i=u.lastIndexOf("."),[c,s]=[u.slice(0,i),u.slice(i+1)],a=c.slice(-3)+"."+s;return u.slice(0,n-a.length-1)+"…"+a}var R=e(4793),S=e.n(R);function j(t){return t?S()(t).replace(/[\s\./]+/g,"-").replace(/[^\p{L}\p{N}_-]+/gu,"").toLowerCase().replace(/-+/g,"-").replace(/(^-+)|(-+$)/g,""):""}function C(t){let n;try{n=new URL(t,"http://example.com").pathname.split("/").pop()}catch(t){}if(n)return n}function P(t){const n=t.split("?"),e=n[1],r=n[0];return e?r+"?"+e.split("&").map((t=>t.split("="))).map((t=>t.map(decodeURIComponent))).sort(((t,n)=>t[0].localeCompare(n[0]))).map((t=>t.map(encodeURIComponent))).map((t=>t.join("="))).join("&"):r}function Q(t){return t?t.startsWith("http://")?t:(t=b(t)).replace(/^http:/,"https:"):t}}(),(window.wp=window.wp||{}).url=r}();
+//# sourceMappingURL=index.min.js.map;
+!function(){var e,t,n,r,o,i={9755:function(e,t,n){"use strict";n.d(t,{AG:function(){return w},Bk:function(){return o},LI:function(){return h},LO:function(){return s},Ov:function(){return c},PP:function(){return g},Pz:function(){return d},Qy:function(){return u},TZ:function(){return p},VB:function(){return f},W1:function(){return i},aP:function(){return k},bk:function(){return _},kQ:function(){return v},oy:function(){return l},rs:function(){return b},yb:function(){return m},zg:function(){return a}});var r=n(5736);const __=r.__,o="__NO_GROUP__",i="JetpackInstantSearchOptions",a="jetpack-instant-search__overlay",c="jetpack-instant-search__search-results",u=70,s="jetpack-instant-search__box-input",f="jetpack-instant-search__overlay-focus-anchor",l="ASC",d="expanded",p="minimal",h="product",w=6e4,g="relevance",m=1e3,v=["newest","oldest",g,"price_asc","price_desc","rating_desc"],_=[d,p,h],k=new Map([[g,__("Relevance","jetpack-search-pkg")],["newest",__("Newest","jetpack-search-pkg")],["oldest",__("Oldest","jetpack-search-pkg")]]),b=new Map([["price_asc",__("Price: low to high","jetpack-search-pkg")],["price_desc",__("Price: high to low","jetpack-search-pkg")],["rating_desc",__("Rating","jetpack-search-pkg")]])},4184:function(e,t,n){"use strict";n.d(t,{Em:function(){return a},bS:function(){return i},vJ:function(){return c}});var r=n(9755);const o=new Map([["jetpack_search_color_theme","colorTheme"],["jetpack_search_enable_sort","enableSort"],["jetpack_search_highlight_color","highlightColor"],["jetpack_search_inf_scroll","enableInfScroll"],["jetpack_search_show_post_date","enablePostDate"],["jetpack_search_overlay_trigger","overlayTrigger"],["jetpack_search_show_powered_by","showPoweredBy"],["jetpack_search_result_format","resultFormat"]]);function i(){return"function"==typeof window?.wp?.customize}function a(e){i()&&window.addEventListener("message",(t=>{t.data&&t.target===window&&"jetpackSearchSectionOpen"===t.data?.key&&"expanded"in t.data&&e(t.data.expanded)}))}function c(e){i()&&o.forEach(((t,n)=>{window.wp.customize(n,(n=>{n.bind((function(n){const o={[t]:n};window[r.W1].showResults=!0,window[r.W1].overlayOptions={...window[r.W1].overlayOptions,...o},e&&e(o)}))}))}))}},554:function(e,t,n){n.p=window.JetpackInstantSearchOptions.webpackPublicPath},5736:function(e){"use strict";e.exports=window.wp.i18n},5417:function(e){"use strict";e.exports=window.wp.jpI18nLoader},6483:function(e){"use strict";e.exports=window.wp.url}},a={};function c(e){var t=a[e];if(void 0!==t)return t.exports;var n=a[e]={exports:{}};return i[e](n,n.exports,c),n.exports}c.m=i,c.n=function(e){var t=e&&e.__esModule?function(){return e.default}:function(){return e};return c.d(t,{a:t}),t},c.d=function(e,t){for(var n in t)c.o(t,n)&&!c.o(e,n)&&Object.defineProperty(e,n,{enumerable:!0,get:t[n]})},c.f={},c.e=function(e){return Promise.all(Object.keys(c.f).reduce((function(t,n){return c.f[n](e,t),t}),[]))},c.u=function(e){return{303:"jp-search.defaultVendors",613:"jp-search.chunk-main-payload"}[e]+".js?minify=false&ver="+{303:"4cb43c47b9cb96850878",613:"fbdc7f3b5141e9817e79"}[e]},c.miniCssF=function(e){return"jp-search.chunk-main-payload.css?minify=false&ver=1937cb5b5f06294a5b42"},function(){if(!c.miniCssF)throw new Error("MiniCSSWithRTLPlugin was loaded before MiniCSSExtractPlugin");var e;c.miniCssF=(e=c.miniCssF,function(t){var n="rtl"===document.dir,r=e(t);return n?r.replace(/\.css(?:$|\?)/,".rtl$&"):r})}(),c.g=function(){if("object"==typeof globalThis)return globalThis;try{return this||new Function("return this")()}catch(e){if("object"==typeof window)return window}}(),c.o=function(e,t){return Object.prototype.hasOwnProperty.call(e,t)},e={},t="jetpack-search:",c.l=function(n,r,o,i){if(e[n])e[n].push(r);else{var a,u;if(void 0!==o)for(var s=document.getElementsByTagName("script"),f=0;f<s.length;f++){var l=s[f];if(l.getAttribute("src")==n||l.getAttribute("data-webpack")==t+o){a=l;break}}a||(u=!0,(a=document.createElement("script")).charset="utf-8",a.timeout=120,c.nc&&a.setAttribute("nonce",c.nc),a.setAttribute("data-webpack",t+o),a.src=n),e[n]=[r];var d=function(t,r){a.onerror=a.onload=null,clearTimeout(p);var o=e[n];if(delete e[n],a.parentNode&&a.parentNode.removeChild(a),o&&o.forEach((function(e){return e(r)})),t)return t(r)},p=setTimeout(d.bind(null,void 0,{type:"timeout",target:a}),12e4);a.onerror=d.bind(null,a.onerror),a.onload=d.bind(null,a.onload),u&&document.head.appendChild(a)}},n={613:0},c.f.wpI18n=function(e,t){n[e]?t.push(n[e]):0===n[e]&&t.push(n[e]=function(e){var t=c(5417);return t&&t.downloadI18n?t.downloadI18n("build/instant-search/"+c.u(e),"jetpack-search-pkg","plugin"):Promise.reject(new Error("I18n loader is not available. Check that WordPress is exporting wp.jpI18nLoader."))}(e).then((function(){n[e]=!1}),(function(t){n[e]=0,console.error("Failed to fetch i18n data: ",t)})))},c.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},function(){var e;c.g.importScripts&&(e=c.g.location+"");var t=c.g.document;if(!e&&t&&(t.currentScript&&(e=t.currentScript.src),!e)){var n=t.getElementsByTagName("script");n.length&&(e=n[n.length-1].src)}if(!e)throw new Error("Automatic publicPath is not supported in this browser");e=e.replace(/#.*$/,"").replace(/\?.*$/,"").replace(/\/[^\/]+$/,"/"),c.p=e}(),r=function(e){return new Promise((function(t,n){var r=c.miniCssF(e),o=c.p+r;if(function(e,t){for(var n=document.getElementsByTagName("link"),r=0;r<n.length;r++){var o=(a=n[r]).getAttribute("data-href")||a.getAttribute("href");if("stylesheet"===a.rel&&(o===e||o===t))return a}var i=document.getElementsByTagName("style");for(r=0;r<i.length;r++){var a;if((o=(a=i[r]).getAttribute("data-href"))===e||o===t)return a}}(r,o))return t();!function(e,t,n,r){var o=document.createElement("link");o.rel="stylesheet",o.type="text/css",o.onerror=o.onload=function(i){if(o.onerror=o.onload=null,"load"===i.type)n();else{var a=i&&("load"===i.type?"missing":i.type),c=i&&i.target&&i.target.href||t,u=new Error("Loading CSS chunk "+e+" failed.\n("+c+")");u.code="CSS_CHUNK_LOAD_FAILED",u.type=a,u.request=c,o.parentNode.removeChild(o),r(u)}},o.href=t,document.head.appendChild(o)}(e,o,t,n)}))},o={942:0},c.f.miniCss=function(e,t){o[e]?t.push(o[e]):0!==o[e]&&{613:1}[e]&&t.push(o[e]=r(e).then((function(){o[e]=0}),(function(t){throw delete o[e],t})))},function(){var e={942:0};c.f.j=function(t,n){var r=c.o(e,t)?e[t]:void 0;if(0!==r)if(r)n.push(r[2]);else{var o=new Promise((function(n,o){r=e[t]=[n,o]}));n.push(r[2]=o);var i=c.p+c.u(t),a=new Error;c.l(i,(function(n){if(c.o(e,t)&&(0!==(r=e[t])&&(e[t]=void 0),r)){var o=n&&("load"===n.type?"missing":n.type),i=n&&n.target&&n.target.src;a.message="Loading chunk "+t+" failed.\n("+o+": "+i+")",a.name="ChunkLoadError",a.type=o,a.request=i,r[1](a)}}),"chunk-"+t,t)}};var t=function(t,n){var r,o,i=n[0],a=n[1],u=n[2],s=0;if(i.some((function(t){return 0!==e[t]}))){for(r in a)c.o(a,r)&&(c.m[r]=a[r]);if(u)u(c)}for(t&&t(n);s<i.length;s++)o=i[s],c.o(e,o)&&e[o]&&e[o][0](),e[o]=0},n=self.webpackChunkjetpack_search=self.webpackChunkjetpack_search||[];n.forEach(t.bind(null,0)),n.push=t.bind(null,n.push.bind(n))}(),function(){"use strict";c(554);var e=c(9755),t=c(4184);function n(){Promise.all([c.e(303),c.e(613)]).then(c.bind(c,1559)).then((e=>e.initialize()))}window[e.W1]&&(0,t.vJ)(),"loading"!==document.readyState?n():document.addEventListener("DOMContentLoaded",n)}()}();;
+/**
+ * Comment Likes - JavaScript
+ *
+ * This handles liking and unliking comments, as well as viewing who has
+ * liked a particular comment.
+ *
+ * @dependency  Swipe (dynamically loaded when needed)
+ *
+ * @package     Comment_Likes
+ * @subpackage  JavaScript
+ */
+(function () {
+	function init() {
+		let extWin;
+		let extWinCheck;
+		let commentLikeEvent;
+
+		// Only run once.
+		if (window.comment_likes_loaded) {
+			return;
+		}
+		window.comment_likes_loaded = true;
+
+		// Client-side cache of who liked a particular comment to avoid
+		// having to hit the server multiple times for the same data.
+		const commentLikeCache = {};
+
+		let swipeLibPromise;
+
+		// Load the Swipe library, if it's not already loaded.
+		function swipeLibLoader() {
+			if (!swipeLibPromise) {
+				swipeLibPromise = new Promise((resolve, reject) => {
+					if (window.Swipe) {
+						resolve(window.Swipe);
+					} else {
+						const swipeScript = document.createElement('script');
+						swipeScript.src = comment_like_text.swipeUrl;
+						swipeScript.async = true;
+						document.body.appendChild(swipeScript);
+						swipeScript.addEventListener('load', () => resolve(window.Swipe));
+						swipeScript.addEventListener('error', error => reject(error));
+					}
+				});
+			}
+			return swipeLibPromise;
+		}
+
+		/**
+		 * Parse the comment ID from a comment like link.
+		 */
+		function getCommentId(link) {
+			const commentId =
+				link && link.getAttribute('href') && link.getAttribute('href').split('like_comment=');
+			return commentId[1].split('&_wpnonce=')[0];
+		}
+
+		/**
+		 * Handle an ajax action on the comment like link.
+		 */
+		function handleLinkAction(link, action, commentId, callback) {
+			const nonce =
+				link && link.getAttribute('href') && link.getAttribute('href').split('_wpnonce=')[1];
+
+			fetch('/wp-admin/admin-ajax.php', {
+				method: 'POST',
+				body: new URLSearchParams({
+					action: action,
+					_wpnonce: nonce,
+					like_comment: commentId,
+					blog_id: Number(link.dataset.blog),
+				}),
+				headers: {
+					'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+					'X-Requested-With': 'XMLHttpRequest',
+					Accept: 'application/json',
+					'cache-control': 'no-cache',
+					pragma: 'no-cache',
+				},
+			})
+				.then(response => response.json())
+				.then(callback);
+		}
+
+		function startPolling() {
+			// Append cookie polling login iframe to this window to wait for user to finish logging in (or cancel)
+			const loginIframe = document.createElement('iframe');
+			loginIframe.id = 'wp-login-polling-iframe';
+			loginIframe.src = 'https://wordpress.com/public.api/connect/?iframe=true';
+			document.body.appendChild(loginIframe);
+			loginIframe.style.display = 'none';
+		}
+
+		function stopPolling() {
+			const iframe = document.querySelector('#wp-login-polling-iframe');
+			if (iframe) {
+				iframe.remove();
+			}
+		}
+
+		function hide(el) {
+			if (el && el.style) {
+				el.style.display = 'none';
+			}
+		}
+
+		function show(el) {
+			if (el && el.style) {
+				el.style.removeProperty('display');
+			}
+		}
+
+		// Overlay used for displaying comment like info.
+		class Overlay {
+			constructor() {
+				// Overlay element.
+				this.el = document.createElement('div');
+				this.el.classList.add('comment-likes-overlay');
+				document.body.appendChild(this.el);
+				hide(this.el);
+
+				this.el.addEventListener('mouseenter', () => {
+					// Don't hide the overlay if the user is mousing over it.
+					overlay.cancelHide();
+				});
+
+				this.el.addEventListener('mouseleave', () => overlay.requestHide());
+
+				// Inner contents of overlay.
+				this.innerEl = null;
+
+				// Instance of the Swipe library.
+				this.swipe = null;
+
+				// Timeout used for hiding the overlay.
+				this.hideTimeout = null;
+			}
+
+			// Initialise the overlay for use, removing any old content.
+			clear() {
+				// Unload any previous instance of Swipe (to avoid leaking a global
+				// event handler). This is done before clearing the contents of the
+				// overlay because Swipe expects the slides to still be present.
+				if (this.swipe) {
+					this.swipe.kill();
+					this.swipe = null;
+				}
+				this.el.innerHTML = '';
+				this.innerEl = document.createElement('div');
+				this.innerEl.classList.add('inner');
+				this.el.appendChild(this.innerEl);
+			}
+
+			/**
+			 * Construct a list (<ul>) of user (gravatar, name) details.
+			 *
+			 * @param  data     liker data returned from the server
+			 * @param  klass    CSS class to apply to the <ul> element
+			 * @param  start    index of user to start at
+			 * @param  length   number of users to include in the list
+			 *
+			 * @return          A container element with the list
+			 */
+			getUserBits(data, klass, start, length) {
+				start = start || 0;
+				let last = start + (length || data.length);
+				last = last > data.length ? data.length : last;
+				const container = document.createElement('div');
+				container.classList.add('liker-list');
+				let html = `<ul class="${klass || ''}">`;
+				for (let i = start; i < last; ++i) {
+					const user = data[i];
+					html += `
+						<li>
+							<a rel="nofollow" title="${user.display_name_esc}" href="${user.profile_url_esc}">
+								<img src="${user.avatar_url_esc}" alt="${user.display_name_esc}" />
+								<span class="user-name">${user.display_name_esc}</span>
+							</a>
+						</li>
+					`;
+				}
+				html += '</ul>';
+				container.innerHTML = html;
+				return container;
+			}
+
+			/**
+			 * Render the display of who has liked this comment. The type of
+			 * display depends on how many people have liked the comment.
+			 * If more than 10 people have liked the comment, this function
+			 * renders navigation controls and sets up the Swipe library for
+			 * changing between pages.
+			 *
+			 * @param link  the element over which the user is hovering
+			 * @param data  the results retrieved from the server
+			 */
+			showLikes(link, data) {
+				this.clear();
+
+				link.dataset.likeCount = data.length;
+				if (data.length === 0) {
+					// No likers after all.
+					hide(this.el);
+					return;
+				}
+
+				this.innerEl.style.padding = '12px';
+
+				if (data.length < 6) {
+					// Only one column needed.
+					this.innerEl.style.maxWidth = '200px';
+					this.innerEl.innerHTML = '';
+					this.innerEl.appendChild(this.getUserBits(data, 'single'));
+					this.setPosition(link);
+				} else if (data.length < 11) {
+					// Two columns, but only one page.
+					this.innerEl.innerHTML = '';
+					this.innerEl.appendChild(this.getUserBits(data, 'double'));
+					this.setPosition(link);
+				} else {
+					// Multiple pages.
+					this.renderLikesWithPagination(data, link);
+				}
+			}
+
+			/**
+			 * Render multiple pages of likes with pagination controls.
+			 * This function is intended to be called by `showLikes` above.
+			 *
+			 * @param data  the results retrieved from the server
+			 */
+			renderLikesWithPagination(data, link) {
+				swipeLibLoader().then(() => {
+					const page_count = Math.ceil(data.length / 10);
+					// Swipe requires two nested containers.
+					const swipe = document.createElement('div');
+					swipe.classList.add('swipe');
+					this.innerEl.appendChild(swipe);
+
+					const wrap = document.createElement('div');
+					wrap.classList.add('swipe-wrap');
+					swipe.appendChild(wrap);
+
+					for (let i = 0; i < page_count; ++i) {
+						wrap.appendChild(this.getUserBits(data, 'double', i * 10, 10));
+					}
+
+					/**
+					 * Navigation controls.
+					 * This is based on the Newdash controls found in
+					 *    reader/recommendations-templates.php
+					 */
+					const nav = document.createElement('nav');
+					nav.classList.add('slider-nav');
+
+					let navContents = `
+						<a href="#" class="prev">
+							<span class="noticon noticon-previous" title="Previous" alt="<"></span>
+						</a>
+						<span class="position">
+					`;
+					for (let i = 0; i < page_count; ++i) {
+						navContents += `<em data-page="${i}" class="${i === 0 ? 'on' : ''}">&bull;</em>`;
+					}
+					navContents += `
+						</span>
+						<a href="#" class="next">
+							<span class="noticon noticon-next" title="Next" alt=">"></span>
+						</a>
+					`;
+					this.innerEl.appendChild(nav);
+					nav.innerHTML = navContents;
+
+					/** Set up Swipe. **/
+					// Swipe cannot be set up successfully unless its container
+					// is visible, so we show it now.
+					show(this.el);
+					this.setPosition(link);
+
+					this.swipe = new Swipe(swipe, {
+						callback: function (pos) {
+							// Update the pagination indicators.
+							//
+							// If there are exactly two pages, Swipe has a weird
+							// special case where it duplicates both pages and
+							// can return index 2 and 3 even though those aren't
+							// real pages (see swipe.js, line 47). To deal with
+							// this, we use the expression `pos % page_count`.
+							pos = pos % page_count;
+							nav.querySelectorAll('em').forEach(em => {
+								const page = Number(em.dataset.page);
+								em.setAttribute('class', pos === page ? 'on' : '');
+							});
+						},
+					});
+
+					nav.querySelectorAll('em').forEach(em => {
+						em.addEventListener('click', e => {
+							// Go to the page corresponding to the indicator clicked.
+							this.swipe.slide(Number(em.dataset.page));
+							e.preventDefault();
+						});
+					});
+					// Previous and next buttons.
+					nav.querySelector('.prev').addEventListener('click', e => {
+						this.swipe.prev();
+						e.preventDefault();
+					});
+					nav.querySelector('.next').addEventListener('click', e => {
+						this.swipe.next();
+						e.preventDefault();
+					});
+				});
+			}
+
+			/**
+			 * Open the overlay and show a loading message.
+			 */
+			showLoadingMessage(link) {
+				this.clear();
+				this.innerEl.textContent = comment_like_text.loading;
+				this.setPosition(link);
+			}
+
+			/**
+			 * Position the overlay near the current comment.
+			 *
+			 * @param link  element near which to position the overlay
+			 */
+			setPosition(link) {
+				// Prepare a down arrow icon for the bottom of the overlay.
+				const icon = document.createElement('span');
+				this.el.appendChild(icon);
+				icon.classList.add('icon', 'noticon', 'noticon-downarrow');
+				icon.style.textShadow = '0px 1px 1px rgb(223, 223, 223)';
+
+				const rect = link.getBoundingClientRect();
+				const win = document.defaultView;
+				const offset = {
+					top: rect.top + win.scrollY,
+					left: rect.left + win.scrollX,
+				};
+
+				// Take measurements with the element fully visible.
+				show(this.el);
+				let left = offset.left - (this.el.offsetWidth - link.offsetWidth) / 2;
+				left = left < 5 ? 5 : left;
+				let top = offset.top - this.el.offsetHeight + 5;
+				hide(this.el);
+
+				const adminBar = document.querySelector('#wpadminbar');
+
+				// Check if the overlay would appear off the screen.
+				if (top < win.scrollY + ((adminBar && adminBar.offsetHeight) || 0)) {
+					// We'll display the overlay beneath the link instead.
+					top = offset.top + link.offsetHeight;
+					// Instead of using the down arrow icon, use an up arrow.
+					icon.remove();
+					this.el.prepend(icon);
+					icon.classList.remove('noticon-downarrow');
+					icon.classList.add('noticon-uparrow');
+					icon.style.textShadow = '0px -1px 1px rgb(223, 223, 223)';
+					icon.style.verticalAlign = 'bottom';
+				}
+
+				this.el.style.left = `${left}px`;
+				this.el.style.top = `${top}px`;
+				show(this.el);
+
+				// The height of the arrow icon differs slightly between browsers,
+				// so we compute the margin here to make sure it isn't disjointed
+				// from the overlay.
+				icon.style.marginTop = `${icon.scrollHeight - 26}px`;
+				icon.style.marginBottom = `${20 - icon.scrollHeight}px`;
+
+				// Position the arrow to be horizontally centred on the link.
+				icon.style.paddingLeft = `${
+					offset.left - left + (link.offsetWidth - icon.scrollWidth) / 2
+				}px`;
+			}
+
+			/**
+			 * Return whether the overlay is visible.
+			 */
+			isVisible() {
+				return this.el.style.getPropertyValue('display') !== 'none';
+			}
+
+			/**
+			 * Request that the overlay be hidden after a short delay.
+			 */
+			requestHide() {
+				if (this.hideTimeout !== null) {
+					return;
+				}
+				this.hideTimeout = setTimeout(() => {
+					hide(this.el);
+					this.clear();
+				}, 300);
+			}
+
+			/**
+			 * Cancel a request to hide the overlay.
+			 */
+			cancelHide() {
+				if (this.hideTimeout !== null) {
+					clearTimeout(this.hideTimeout);
+					this.hideTimeout = null;
+				}
+			}
+		}
+
+		// Overlay used for displaying comment like info.
+		const overlay = new Overlay();
+
+		// The most recent comment for which the user has requested to see
+		// who liked it.
+		var relevantComment;
+
+		// Precache after this timeout.
+		var precacheTimeout = null;
+
+		/**
+		 * Fetch the like data for a particular comment.
+		 */
+		function fetchLikeData(link, commentId) {
+			commentLikeCache[commentId] = null;
+
+			const container = link && link.parentElement && link.parentElement.parentElement;
+			const star = container.querySelector('a.comment-like-link');
+			star &&
+				handleLinkAction(star, 'view_comment_likes', commentId, data => {
+					// Populate the cache.
+					commentLikeCache[commentId] = data;
+
+					// Only show the overlay if the user is interested.
+					if (overlay.isVisible() && relevantComment === commentId) {
+						overlay.showLikes(link, data);
+					}
+				});
+		}
+
+		function readCookie(c) {
+			const nameEQ = c + '=';
+			const cookieStrings = document.cookie.split(';');
+
+			for (let i = 0; i < cookieStrings.length; i++) {
+				let cookieString = cookieStrings[i];
+				while (cookieString.charAt(0) === ' ') {
+					cookieString = cookieString.substring(1, cookieString.length);
+				}
+				if (cookieString.indexOf(nameEQ) === 0) {
+					const chunk = cookieString.substring(nameEQ.length, cookieString.length);
+					const pairs = chunk.split('&');
+					const cookieData = {};
+					for (let num = pairs.length - 1; num >= 0; num--) {
+						const pair = pairs[num].split('=');
+						cookieData[pair[0]] = decodeURIComponent(pair[1]);
+					}
+					return cookieData;
+				}
+			}
+			return null;
+		}
+
+		function getServiceData() {
+			const data = readCookie('wpc_wpc');
+			if (data === null || typeof data.access_token === 'undefined' || !data.access_token) {
+				return false;
+			}
+			return data;
+		}
+
+		function readMessage(msg) {
+			const event = msg.data;
+
+			if (typeof event.event === 'undefined') {
+				return;
+			}
+
+			if (event.event === 'login' && event.success) {
+				extWinCheck = setInterval(function () {
+					if (!extWin || extWin.closed) {
+						clearInterval(extWinCheck);
+						if (getServiceData()) {
+							// Load page in an iframe to get the current comment nonce
+							const nonceIframe = document.createElement('iframe');
+							nonceIframe.id = 'wp-login-comment-nonce-iframe';
+							nonceIframe.style.display = 'none';
+							nonceIframe.src = commentLikeEvent + '';
+							document.body.appendChild(nonceIframe);
+
+							const commentLikeId = (commentLikeEvent + '')
+								.split('like_comment=')[1]
+								.split('&_wpnonce=')[0];
+							let c;
+
+							// Set a 5 second timeout to redirect to the comment page without doing the Like as a fallback
+							const commentLikeTimeout = setTimeout(() => {
+								window.location = commentLikeEvent;
+							}, 5000);
+
+							// Check for a new nonced redirect and use that if available before timing out
+							const commentLikeCheck = setInterval(() => {
+								const iframe = document.querySelector('#wp-login-comment-nonce-iframe');
+								if (iframe) {
+									c = iframe.querySelector(`#comment-like-${commentLikeId} .comment-like-link`);
+								}
+								if (c && typeof c.href !== 'undefined') {
+									clearTimeout(commentLikeTimeout);
+									clearInterval(commentLikeCheck);
+									window.location = c.href;
+								}
+							}, 100);
+						}
+					}
+				}, 100);
+
+				if (extWin) {
+					if (!extWin.closed) {
+						extWin.close();
+					}
+					extWin = false;
+				}
+
+				stopPolling();
+			}
+		}
+
+		if (typeof window.postMessage !== 'undefined') {
+			window.addEventListener('message', e => {
+				let message = e && e.data;
+				if (typeof message === 'string') {
+					try {
+						message = JSON.parse(message);
+					} catch (err) {
+						return;
+					}
+				}
+
+				const type = message && message.type;
+				if (type === 'loginMessage') {
+					readMessage(message);
+				}
+			});
+		}
+
+		document.body.addEventListener('click', e => {
+			let target = e.target;
+
+			// Don't do anything when clicking on the "X people" link.
+			if (target.matches('p.comment-likes a.view-likers')) {
+				e.preventDefault();
+				return;
+			}
+
+			// Retrieve the surrounding paragraph to the star, if it hasn't been liked.
+			const notLikedPar = target.closest('p.comment-not-liked');
+
+			// Return if not clicking on star or surrounding paragraph.
+			if (!target.matches('a.comment-like-link') && !notLikedPar) {
+				return;
+			}
+
+			// When a comment hasn't been liked, make the text clickable, too.
+			if (notLikedPar) {
+				target = notLikedPar.querySelector('a.comment-like-link');
+				if (!target) {
+					return;
+				}
+			}
+
+			if (target.classList.contains('needs-login')) {
+				e.preventDefault();
+				commentLikeEvent = target;
+				if (extWin) {
+					if (!extWin.closed) {
+						extWin.close();
+					}
+					extWin = false;
+				}
+
+				stopPolling();
+
+				const url = 'https://wordpress.com/public.api/connect/?action=request&service=wordpress';
+				extWin = window.open(
+					url,
+					'likeconn',
+					'status=0,toolbar=0,location=1,menubar=0,directories=0,resizable=1,scrollbars=1,height=560,width=500'
+				);
+
+				startPolling();
+
+				return false;
+			}
+
+			// Record that the user likes or does not like this comment.
+			const commentId = getCommentId(target);
+			target.classList.add('loading');
+
+			let commentEl = document.querySelector(`p#comment-like-${commentId}`);
+			// Determine whether to like or unlike based on whether the comment is
+			// currently liked.
+			const action =
+				commentEl && commentEl.dataset.liked === 'comment-liked'
+					? 'unlike_comment'
+					: 'like_comment';
+			handleLinkAction(target, action, commentId, data => {
+				// Invalidate the like cache for this comment.
+				delete commentLikeCache[commentId];
+
+				const countEl = document.querySelector(`#comment-like-count-${data.context}`);
+				if (countEl) {
+					countEl.innerHTML = data.display;
+				}
+
+				commentEl = document.querySelector(`p#comment-like-${data.context}`);
+				if (action === 'like_comment') {
+					commentEl.classList.remove('comment-not-liked');
+					commentEl.classList.add('comment-liked');
+					commentEl.dataset.liked = 'comment-liked';
+				} else {
+					commentEl.classList.remove('comment-liked');
+					commentEl.classList.add('comment-not-liked');
+					commentEl.dataset.liked = 'comment-not-liked';
+				}
+
+				// Prefetch new data for this comment (if there are likers left).
+				const parent = target.closest('.comment-likes');
+				const link = parent && parent.querySelector('a.view-likers');
+				if (link) {
+					fetchLikeData(link, commentId);
+				}
+
+				target.classList.remove('loading');
+			});
+			e.preventDefault();
+			e.stopPropagation();
+		});
+
+		document.body.addEventListener(
+			'mouseenter',
+			function (e) {
+				if (!e.target.matches('p.comment-likes a.view-likers')) {
+					return;
+				}
+				// Show the user a list of who has liked this comment.
+
+				const link = e.target;
+				if (Number(link.dataset.likeCount || 0) === 0) {
+					// No one has liked this comment.
+					return;
+				}
+
+				// Don't hide the overlay.
+				overlay.cancelHide();
+
+				// Get the comment ID.
+				const container = link.parentElement && link.parentElement.parentElement;
+				const star = container && container.querySelector('a.comment-like-link');
+				const commentId = star && getCommentId(star);
+				relevantComment = commentId;
+
+				// Check if the list of likes for this comment is already in
+				// the cache.
+				if (commentId in commentLikeCache) {
+					const entry = commentLikeCache[commentId];
+					// Only display the likes if the ajax request is
+					// actually done.
+					if (entry !== null) {
+						overlay.showLikes(link, entry);
+					} else {
+						// Make sure the overlay is visible (in case
+						// the user moved the mouse away while loading
+						// but then came back before it finished
+						// loading).
+						overlay.showLoadingMessage(link);
+					}
+					return;
+				}
+
+				// Position the "Loading..." overlay.
+				overlay.showLoadingMessage(link);
+
+				// Fetch the data.
+				fetchLikeData(link, commentId);
+			},
+			true
+		);
+
+		document.body.addEventListener(
+			'mouseleave',
+			e => {
+				if (!e.target.matches('p.comment-likes a.view-likers')) {
+					return;
+				}
+				// User has moved cursor away - hide the overlay.
+				overlay.requestHide();
+			},
+			true
+		);
+
+		document.body.addEventListener(
+			'mouseenter',
+			e => {
+				if (!e.target.matches('.comment') || !e.target.querySelector('a.comment-like-link')) {
+					return;
+				}
+				// User is moving over a comment - precache the comment like data.
+				if (precacheTimeout !== null) {
+					clearTimeout(precacheTimeout);
+					precacheTimeout = null;
+				}
+
+				const star = e.target.querySelector('a.comment-like-link');
+				const parent = star.closest('.comment-likes');
+				const link = parent && parent.querySelector('a.view-likers');
+				if (!link || Number(link.dataset.likeCount || 0) === 0) {
+					// No likes.
+					return;
+				}
+				const commentId = getCommentId(star);
+				if (commentId in commentLikeCache) {
+					// Already in cache.
+					return;
+				}
+
+				precacheTimeout = setTimeout(() => {
+					precacheTimeout = null;
+					if (commentId in commentLikeCache) {
+						// Was cached in the interim.
+						return;
+					}
+					fetchLikeData(link, commentId);
+				}, 1000);
+			},
+			true
+		);
+	}
+
+	if (document.readyState !== 'loading') {
+		init();
+	} else {
+		document.addEventListener('DOMContentLoaded', init);
+	}
+})();
+;
+!function(){"use strict";var n={n:function(o){var t=o&&o.__esModule?function(){return o.default}:function(){return o};return n.d(t,{a:t}),t},d:function(o,t){for(var e in t)n.o(t,e)&&!n.o(o,e)&&Object.defineProperty(o,e,{enumerable:!0,get:t[e]})}};n.g=function(){if("object"==typeof globalThis)return globalThis;try{return this||new Function("return this")()}catch(n){if("object"==typeof window)return window}}(),n.o=function(n,o){return Object.prototype.hasOwnProperty.call(n,o)},function(){function n(o){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(n){return typeof n}:function(n){return n&&"function"==typeof Symbol&&n.constructor===Symbol&&n!==Symbol.prototype?"symbol":typeof n},n(o)}var o=window.wp.hooks;window.wpParselyHooks=(0,o.createHooks)(),function(){var o=function(){return window.wpParselyHooks.doAction("wpParselyOnLoad")},t=function(){return window.wpParselyHooks.doAction("wpParselyOnReady")};if("object"===n(window.PARSELY)){if("function"!=typeof window.PARSELY.onload)window.PARSELY.onload=o;else{var e=window.PARSELY.onload;window.PARSELY.onload=function(){e&&e(),o()}}if("function"!=typeof window.PARSELY.onReady)window.PARSELY.onReady=t;else{var r=window.PARSELY.onReady;window.PARSELY.onReady=function(){r&&r(),t()}}}else window.PARSELY={onload:o,onReady:t};!0===window.wpParselyDisableAutotrack&&(window.PARSELY.autotrack=!1)}()}(),function(){function o(n,o,t,e,r,i,a){try{var u=n[i](a),c=u.value}catch(n){return void t(n)}u.done?o(c):Promise.resolve(c).then(e,r)}function t(n){return function(){var t=this,e=arguments;return new Promise((function(r,i){var a=n.apply(t,e);function u(n){o(a,r,i,u,c,"next",n)}function c(n){o(a,r,i,u,c,"throw",n)}u(void 0)}))}}var e=window.regeneratorRuntime,r=n.n(e);function i(){return(i=t(r().mark((function o(){var t,e,i,a;return r().wrap((function(o){for(;;)switch(o.prev=o.next){case 0:if(i=null===(t=n.g.PARSELY)||void 0===t||null===(e=t.config)||void 0===e?void 0:e.parsely_site_uuid,window.wpParselyApiKey&&i){o.next=3;break}return o.abrupt("return");case 3:return a="https://api.parsely.com/v2/profile?apikey=".concat(encodeURIComponent(window.wpParselyApiKey),"&uuid=").concat(encodeURIComponent(i),"&url=").concat(encodeURIComponent(window.location.href)),o.abrupt("return",fetch(a));case 5:case"end":return o.stop()}}),o)})))).apply(this,arguments)}void 0!==window.wpParselyApiKey&&window.wpParselyHooks.addAction("wpParselyOnLoad","wpParsely",(function(){return i.apply(this,arguments)}))}()}();;

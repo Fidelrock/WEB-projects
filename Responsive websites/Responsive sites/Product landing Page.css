@@ -1,0 +1,131 @@
+#header{
+  display:flex;
+  position:fixed;
+  width:100%;
+    top: 0;
+      left: 0;
+   background-color: #f1f1f1;
+
+}
+#nav-bar{
+  
+margin-left:450px;
+margin-top:20px;
+
+}
+.nav-link{
+  margin-left:10px;
+}
+#nav-bar a{
+  color:rgb(27, 26, 26);
+  text-decoration:none;
+  font-size:17px;
+}
+#nav-bar a:hover{
+  background-color:rgb(219, 207, 207);
+}
+#intro{
+  margin-top:38px;
+  text-align:center;
+}
+input{
+  display:block;
+}
+#email{
+  margin-bottom:20px;
+  height:35px;
+  width:80%;
+  margin-left:auto;
+  margin-right:auto;
+  text-align:center;
+}
+#submit,button{
+  margin-left:auto;
+  margin-right:auto;
+  height:26px;
+  border-radius:10px;
+  background-color:yellow;
+}
+#submit:hover{
+  background-color:orange;
+}
+button:hover{
+  background-color:orange;
+}
+#form{
+  width:80%;
+  margin:0 auto;
+}
+#features,#works,#pricing{
+  width:80%;
+margin:0 auto;
+}
+#features p,#features li{
+margin-top:-10px;
+text-align:center;
+}
+#features li{ 
+  list-style:none;
+  margin-top:10px;
+}
+#works{
+  margin-top:20px;
+  margin-left:220px;
+  margin-right:auto;
+}
+#pricing{
+  display:flex;
+}
+div{
+  border:2px solid black;
+  margin-left:50px;
+  width:500px;
+  margin-top:30px;
+  text-align:center;
+  padding-bottom:10px;
+  border-radius:20px;
+}
+body{
+    background-color:rgb(219, 207, 207);
+
+}
+.footer{
+  border:none;
+  width:100%;
+  
+}
+.footer li{
+  text-align:left;
+margin-bottom:10px;
+border-radius:0;
+list-style:none;
+}
+footer p{
+  text-align:left;
+  margin-left:92px;
+  margin-top:-20px;
+}
+footer{
+  width:80%;
+  background-color: #f1f1f1;
+  margin-left:110px;
+  border-radius:10px;
+}
+.footer li a{
+  text-decoration:none;
+  color:black;
+}
+#video{
+  margin-left:0px;
+}
+p{
+  font-size:18px;
+}
+h5{
+  font-size:21px;
+}
+@media only screen and (min-width:800px){
+#nav-bar {
+  text-align:right;
+}
+}

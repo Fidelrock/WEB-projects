@@ -1,0 +1,13 @@
+body{
+    background-color: black;
+    color: white;
+}
+p{
+    color: red;
+    font-size: 20px;
+    text-align: center;
+}
+h1{
+    color: yellow;
+    text-align: right;
+}

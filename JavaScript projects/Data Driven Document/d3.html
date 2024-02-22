@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Driven Document</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <script>
+        d3.select("body").append("h1").text("Fidel is practicing D3.js").style("color", "red");
+
+        for (let i = 0; i < 5; i++) {
+            d3.select("body").append("h2").text("Multiple select demo").style("color", "green");
+        }
+
+        d3.selectAll("h2").style("color", "black");
+
+        // Creating an SVG container and circles
+        const svg = d3.select("body").append("svg").attr("width", 500).attr("height", 100);
+
+        // Creating circles and setting cx attribute
+        svg.selectAll("circle")
+            .data([0, 1, 2, 3, 4])
+            .enter().append("circle")
+            .attr("cx", (d, i) => i * 100)
+            .attr("cy", 50)
+            .attr("r", 20)
+            .style("fill", "black");
+
+        // Binding data to paragraph elements
+        let fruits = ['Apple', 'Orange', 'Mango'];
+
+        d3.select(".d3_fruit")
+            .selectAll("p")
+            .data(fruits)
+            .enter().append("p")
+            .attr("class", "d3_fruit")
+            .text((d) => d);
+
+        // Data loading in D3
+        const el = d3.select("#d3_svg_demo2");
+
+        d3.json("https://raw.githubusercontent.com/iamspruce/intro-d3/main/nigeria-states.json").then(({data}) => {
+            el.selectAll("p")
+                .data(data)
+                .enter().append("p")
+                .text((d) => d.Name);
+        });
+    </script>
+    
+    <!-- HTML -->
+    <div class="d3_fruit"></div>
+
+    <!-- Assuming you have an element with the ID d3_svg_demo2 in your HTML -->
+    <div id="d3_svg_demo2"></div>
+
+</body>
+</html>

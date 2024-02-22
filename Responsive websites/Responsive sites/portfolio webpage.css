@@ -1,0 +1,92 @@
+#navbar{
+  position:fixed;
+  height:50px;
+  background-color:rgb(190, 35, 35);
+  width:100vw;
+  padding-top:30px;
+  margin-top:-10px;
+  margin-left:-10px;
+  padding-left:1050px;
+  
+}
+span{
+  margin-right:20px;
+  font-size:20px;
+}
+a{
+  text-decoration:none;
+  color:black;
+}
+#welcome-section{
+  width:100vw;
+  height:100vh;
+  background-color:rgb(36, 36, 68);
+  text-align:center;
+  padding-top:350px;
+  margin-left:-10px;
+  overflow:hidden;
+}
+#welcome-section h1,#welcome-section p{
+  margin:auto auto;
+}
+#welcome-section h1{
+  font-size:35px;
+  color:white;
+}
+#welcome-section p{
+  font-size:28px;
+  color:rgb(190, 35, 35);
+}
+u{
+  color:white;
+  margin:auto auto;
+  font-family:sans serif;
+}
+#projects{
+  background-color:rgb(74, 74, 243);
+  text-align:center;
+  width:100vw;
+  margin-top:-20px;
+  margin-left:-10px;
+  padding-top:20px;
+}
+.project-tile{
+  display:flex;
+}
+.project{
+  border: 2px solid black;
+  margin-right:20px;
+  height:300px;
+}
+figcaption{
+  margin-top:200px;
+}
+button{
+  margin-top:20px;
+  width:130px;
+  height:40px;
+  margin-bottom:10px;
+}
+#contact{
+   background-color:rgb(36, 36, 68);
+color:white;
+text-align:center;
+width:100vw;
+margin-left:-10px;
+padding-top:20px;
+}
+ #call{
+   font-size:30px;
+ }
+ #rule{
+   background-color:white;
+ }
+ #mediaContact{
+   font-size:normal;
+   margin-top:10px;
+ }
+ @media screen and (max-width: 768px){
+   .project-tile{
+     display:block;
+ }
+ }
